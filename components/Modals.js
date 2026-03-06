@@ -22,6 +22,8 @@ export default function Modals() {
     workers,
     suppliers,
     activeFY,
+    customFYs,
+    setCustomFYs,
     selectedClient,
     saveClient,
     saveClientTx,
@@ -546,6 +548,38 @@ export default function Modals() {
         </View>
         <TouchableOpacity style={[styles.btn, styles.btnSupplier, styles.modalSaveBtn]} onPress={saveClientTx}>
           <Text style={styles.btnText}>حفظ ✓</Text>
+        </TouchableOpacity>
+      </CustomModal>
+
+      <CustomModal visible={modal === "addFY"} onClose={() => setModal(null)}>
+        <Text style={styles.modalTitle}>📅 إضافة سنة مالية</Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>السنة المالية (مثال: 2025/2026)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="2025/2026"
+            placeholderTextColor="#64748b"
+            value={form.customFY || ""}
+            onChangeText={(text) => setForm((p) => ({ ...p, customFY: text.trim() }))}
+          />
+        </View>
+        <TouchableOpacity
+          style={[styles.btn, styles.btnPrimary, styles.modalSaveBtn]}
+          onPress={() => {
+            const val = (form.customFY || "").trim();
+            const match = val.match(/^(\d{4})\/(\d{4})$/);
+            if (match) {
+              const a = parseInt(match[1], 10);
+              const b = parseInt(match[2], 10);
+              if (b === a + 1) {
+                setCustomFYs((prev) => (prev.includes(val) ? prev : [...prev, val]));
+                setForm((p) => ({ ...p, customFY: "" }));
+                setModal(null);
+              }
+            }
+          }}
+        >
+          <Text style={styles.btnText}>إضافة السنة ✓</Text>
         </TouchableOpacity>
       </CustomModal>
     </>

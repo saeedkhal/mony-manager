@@ -2,9 +2,9 @@ import { useMemo } from "react";
 import { getFiscalYear, getCurrentFiscalYear } from "../utils/helpers";
 import { MONTHS_AR } from "../constants";
 
-export function useAppData(clients, generalTxs, workers, suppliers, activeFY) {
+export function useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs = []) {
   const allFYs = useMemo(() => {
-    const set = new Set([getCurrentFiscalYear()]);
+    const set = new Set([getCurrentFiscalYear(), ...(customFYs || [])]);
     clients.forEach((c) =>
       c.txs.forEach((t) => {
         const fy = getFiscalYear(t.date);
@@ -16,7 +16,7 @@ export function useAppData(clients, generalTxs, workers, suppliers, activeFY) {
       if (fy) set.add(fy);
     });
     return [...set].sort((a, b) => b.localeCompare(a));
-  }, [clients, generalTxs]);
+  }, [clients, generalTxs, customFYs]);
 
   const fyClients = useMemo(
     () =>

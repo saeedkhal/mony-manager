@@ -13,13 +13,14 @@ export default function WorkerDetail() {
     workers,
     suppliers,
     activeFY,
+    customFYs,
     selectedWorker,
     setSelectedWorker,
     setForm,
     setModal,
     deleteClientTx,
   } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { workerStats } = appData;
   const activeWorker = workerStats.find((w) => w.id === selectedWorker);
 

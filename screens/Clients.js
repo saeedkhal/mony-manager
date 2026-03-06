@@ -14,10 +14,11 @@ export default function Clients() {
     workers,
     suppliers,
     activeFY,
+    customFYs,
     selectedClient,
     setSelectedClient,
   } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { fyClients, clientTotals } = appData;
 
   if (selectedClient) {

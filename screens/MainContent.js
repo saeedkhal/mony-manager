@@ -6,6 +6,7 @@ import Workers from "./Workers";
 import Suppliers from "./Suppliers";
 import General from "./General";
 import Zakat from "./Zakat";
+import FiscalYear from "./FiscalYear";
 import { useApp } from "../context/AppContext";
 
 export default function MainContent() {
@@ -19,6 +20,7 @@ export default function MainContent() {
       {tab === "suppliers" && <Suppliers />}
       {tab === "general" && <General />}
       {tab === "zakat" && <Zakat />}
+      {tab === "fiscalyear" && <FiscalYear />}
     </View>
   );
 }

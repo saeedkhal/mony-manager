@@ -13,13 +13,14 @@ export default function SupplierDetail() {
     workers,
     suppliers,
     activeFY,
+    customFYs,
     selectedSupplier,
     setSelectedSupplier,
     setForm,
     setModal,
     deleteClientTx,
   } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { supplierStats } = appData;
   const activeSupplier = supplierStats.find((s) => s.id === selectedSupplier);
 

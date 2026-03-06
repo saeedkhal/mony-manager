@@ -28,4 +28,5 @@ export const NAV_ITEMS = [
   ["suppliers", "🏭", "الموردين"],
   ["general", "🏢", "مصروفات عامة"],
   ["zakat", "🌙", "الزكاة"],
+  ["fiscalyear", "📅", "السنة المالية"],
 ];

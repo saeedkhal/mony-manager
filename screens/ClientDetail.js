@@ -14,6 +14,7 @@ export default function ClientDetail() {
     workers,
     suppliers,
     activeFY,
+    customFYs,
     selectedClient,
     setSelectedClient,
     openClientTx,
@@ -21,7 +22,7 @@ export default function ClientDetail() {
     deleteClient,
     toggleStatus,
   } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { clientTotals } = appData;
 
   const activeClient = clients.find((c) => c.id === selectedClient);

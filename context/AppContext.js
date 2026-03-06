@@ -17,6 +17,7 @@ export function AppProvider({ children }) {
   ]);
   const [suppliers, setSuppliers] = useState([]);
   const [activeFY, setActiveFY] = useState(getCurrentFiscalYear());
+  const [customFYs, setCustomFYs] = useState([]);
   const [nissabPrice, setNissabPrice] = useState(85000);
   const [tab, setTab] = useState("dashboard");
   const [selectedClient, setSelectedClient] = useState(null);
@@ -39,6 +40,7 @@ export function AppProvider({ children }) {
         setWorkers(saved.workers || workers);
         setSuppliers(saved.suppliers || []);
         setActiveFY(saved.activeFY || getCurrentFiscalYear());
+        setCustomFYs(saved.customFYs || []);
         setNissabPrice(saved.nissabPrice || 85000);
       }
       setLoaded(true);
@@ -48,7 +50,7 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     if (loaded) {
-      saveState({ clients, generalTxs, workers, suppliers, activeFY, nissabPrice });
+      saveState({ clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice });
     }
   }, [clients, generalTxs, workers, suppliers, activeFY, nissabPrice, loaded]);
 
@@ -226,6 +228,8 @@ export function AppProvider({ children }) {
     setSuppliers,
     activeFY,
     setActiveFY,
+    customFYs,
+    setCustomFYs,
     nissabPrice,
     setNissabPrice,
     tab,

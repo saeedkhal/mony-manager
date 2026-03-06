@@ -22,8 +22,8 @@ const chartConfig = {
 };
 
 export default function Dashboard() {
-  const { clients, generalTxs, workers, suppliers, activeFY, setSelectedClient, setTab } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const { clients, generalTxs, workers, suppliers, activeFY, customFYs, setSelectedClient, setTab } = useApp();
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const {
     fyClients,
     fyGeneralTxs,

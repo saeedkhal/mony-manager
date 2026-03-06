@@ -38,8 +38,9 @@ function AppContent() {
     generalTxs,
     workers,
     suppliers,
+    customFYs,
   } = useApp();
-  const { allFYs } = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const { allFYs } = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
 
   const systemBarColor = "#f0f0f0";
 

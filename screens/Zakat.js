@@ -9,9 +9,9 @@ import styles from "../styles/AppStyles";
 const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
-  const { clients, generalTxs, workers, suppliers, activeFY, nissabPrice, setNissabPrice } =
+  const { clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice, setNissabPrice } =
     useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = appData;
 
   const zakatBase = netProfit > 0 ? netProfit : 0;

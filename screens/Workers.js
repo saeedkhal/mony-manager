@@ -14,13 +14,14 @@ export default function Workers() {
     workers,
     suppliers,
     activeFY,
+    customFYs,
     selectedWorker,
     setSelectedWorker,
     setForm,
     setModal,
     deleteWorker,
   } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { workerStats } = appData;
 
   if (selectedWorker) {

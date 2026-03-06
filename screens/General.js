@@ -7,8 +7,8 @@ import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function General() {
-  const { clients, generalTxs, workers, suppliers, activeFY, setGeneralTxs } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const { clients, generalTxs, workers, suppliers, activeFY, customFYs, setGeneralTxs } = useApp();
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { fyGeneralTxs } = appData;
 
   return (

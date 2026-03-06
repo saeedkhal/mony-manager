@@ -14,13 +14,14 @@ export default function Suppliers() {
     workers,
     suppliers,
     activeFY,
+    customFYs,
     selectedSupplier,
     setSelectedSupplier,
     setForm,
     setModal,
     deleteSupplier,
   } = useApp();
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY);
+  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { supplierStats } = appData;
 
   if (selectedSupplier) {
