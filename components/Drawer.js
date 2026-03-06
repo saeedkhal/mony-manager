@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, Pressable, Animated, StyleShe
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-export default function Drawer({ visible, onClose, navItems, activeTab, onTabChange, drawerAnimation }) {
+export default function Drawer({ visible, onClose, navItems, activeTab, onTabChange, drawerAnimation, safeAreaBottom = 0 }) {
   if (!visible) return null;
 
   return (
@@ -11,9 +11,7 @@ export default function Drawer({ visible, onClose, navItems, activeTab, onTabCha
       <Animated.View
         style={[
           styles.drawerContent,
-          {
-            transform: [{ translateX: drawerAnimation }],
-          },
+          { bottom: safeAreaBottom, transform: [{ translateX: drawerAnimation }] },
         ]}
       >
         <View style={styles.drawerHeader}>
@@ -57,11 +55,10 @@ const styles = StyleSheet.create({
   },
   drawerContent: {
     position: "absolute",
-    top: 0,
+    top: 24,
     right: 0,
     width: SCREEN_WIDTH * 0.75,
     maxWidth: 320,
-    height: "100%",
     backgroundColor: "#1e1b4b",
     borderLeftWidth: 1,
     borderLeftColor: "rgba(255,255,255,0.1)",

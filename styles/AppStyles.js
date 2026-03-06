@@ -16,6 +16,7 @@ export default StyleSheet.create({
   content: {
     flex: 1,
     padding: 24,
+    paddingBottom: 24,
   },
   btn: {
     borderRadius: 11,

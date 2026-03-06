@@ -1,6 +1,5 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function Header({
   onMenuPress,
@@ -14,10 +13,8 @@ export default function Header({
   getFiscalYearLabel,
   headerActions,
 }) {
-  const insets = useSafeAreaInsets();
-
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+    <View style={[styles.header, { paddingTop: 14 }]}>
       <View style={styles.headerTop}>
         <TouchableOpacity style={styles.menuButton} onPress={onMenuPress}>
           <Text style={styles.menuIcon}>☰</Text>
@@ -35,7 +32,7 @@ export default function Header({
           {showFYPicker && (
             <View style={styles.fyPickerDropdown}>
               <ScrollView style={styles.fyPickerList}>
-                {allFYs.map((fy) => (
+                {(allFYs || []).map((fy) => (
                   <TouchableOpacity
                     key={fy}
                     style={[styles.fyPickerItem, fy === activeFY && styles.fyPickerItemActive]}

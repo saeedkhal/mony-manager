@@ -28,7 +28,7 @@ export function AppProvider({ children }) {
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const drawerAnimation = useRef(new Animated.Value(SCREEN_WIDTH * 0.75)).current;
+  const drawerAnimation = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
 
   useEffect(() => {
     const loadData = async () => {
@@ -54,7 +54,7 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     if (showDrawer) {
-      drawerAnimation.setValue(SCREEN_WIDTH * 0.75);
+      drawerAnimation.setValue(-SCREEN_WIDTH * 0.75);
       Animated.timing(drawerAnimation, {
         toValue: 0,
         duration: 300,
@@ -65,7 +65,7 @@ export function AppProvider({ children }) {
 
   const closeDrawer = () => {
     Animated.timing(drawerAnimation, {
-      toValue: SCREEN_WIDTH * 0.75,
+      toValue: -SCREEN_WIDTH * 0.75,
       duration: 300,
       useNativeDriver: true,
     }).start(() => setShowDrawer(false));
