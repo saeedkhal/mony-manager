@@ -1,9 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { Animated, Dimensions } from "react-native";
 import { initState, saveState } from "../utils/storage";
 import { getCurrentFiscalYear } from "../utils/helpers";
-import { PROJECT_TYPES } from "../constants";
+import { PROJECT_TYPES, CLIENT_EXPENSE_CATS, GENERAL_EXPENSE_CATS } from "../constants";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
@@ -72,6 +71,150 @@ export function AppProvider({ children }) {
     }).start(() => setShowDrawer(false));
   };
 
+  const saveClient = () => {
+    if (!form.name?.trim()) return;
+    setClients((p) => [
+      ...p,
+      {
+        id: Date.now(),
+        name: form.name.trim(),
+        project: form.project || PROJECT_TYPES[0],
+        status: "active",
+        note: form.note || "",
+        createdAt: new Date().toISOString().split("T")[0],
+        txs: [],
+      },
+    ]);
+    setModal(null);
+    setForm({});
+  };
+
+  const saveClientTx = () => {
+    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
+    const date = form.date || new Date().toISOString().split("T")[0];
+    const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
+    if (form.workerId) tx.workerId = form.workerId;
+    if (form.supplierId) tx.supplierId = form.supplierId;
+    if (form.editTxId) {
+      const targetClientId = form.clientId || selectedClient;
+      setClients((p) =>
+        p.map((c) =>
+          c.id === targetClientId
+            ? { ...c, txs: c.txs.map((t) => (t.id === form.editTxId ? { ...tx, id: t.id } : t)) }
+            : c
+        )
+      );
+    } else {
+      tx.id = Date.now();
+      const targetClientId = form.clientId || selectedClient;
+      setClients((p) => p.map((c) => (c.id === targetClientId ? { ...c, txs: [...c.txs, tx] } : c)));
+    }
+    setModal(null);
+    setForm({});
+  };
+
+  const saveGeneral = () => {
+    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
+    const date = form.date || new Date().toISOString().split("T")[0];
+    setGeneralTxs((p) => [
+      ...p,
+      {
+        id: Date.now(),
+        amount: Number(form.amount),
+        cat: form.cat || GENERAL_EXPENSE_CATS[0],
+        note: form.note || "",
+        date,
+      },
+    ]);
+    setModal(null);
+    setForm({});
+  };
+
+  const saveWorker = () => {
+    if (!form.name?.trim()) return;
+    if (form.editId) {
+      setWorkers((p) =>
+        p.map((w) => (w.id === form.editId ? { ...w, name: form.name.trim(), phone: form.phone || "" } : w))
+      );
+    } else {
+      setWorkers((p) => [...p, { id: Date.now(), name: form.name.trim(), phone: form.phone || "" }]);
+    }
+    setModal(null);
+    setForm({});
+  };
+
+  const saveSupplier = () => {
+    if (!form.name?.trim()) return;
+    if (form.editId) {
+      setSuppliers((p) =>
+        p.map((s) =>
+          s.id === form.editId
+            ? { ...s, name: form.name.trim(), phone: form.phone || "", category: form.category || "" }
+            : s
+        )
+      );
+    } else {
+      setSuppliers((p) => [
+        ...p,
+        { id: Date.now(), name: form.name.trim(), phone: form.phone || "", category: form.category || "" },
+      ]);
+    }
+    setModal(null);
+    setForm({});
+  };
+
+  const deleteClientTx = (cid, tid) =>
+    setClients((p) => p.map((c) => (c.id === cid ? { ...c, txs: c.txs.filter((t) => t.id !== tid) } : c)));
+
+  const deleteClient = (cid) => {
+    setClients((p) => p.filter((c) => c.id !== cid));
+    setSelectedClient(null);
+    setTab("clients");
+  };
+
+  const toggleStatus = (cid) =>
+    setClients((p) => p.map((c) => (c.id === cid ? { ...c, status: c.status === "active" ? "done" : "active" } : c)));
+
+  const deleteWorker = (id) => {
+    setWorkers((p) => p.filter((w) => w.id !== id));
+    if (selectedWorker === id) setSelectedWorker(null);
+  };
+
+  const deleteSupplier = (id) => {
+    setSuppliers((p) => p.filter((s) => s.id !== id));
+    if (selectedSupplier === id) setSelectedSupplier(null);
+  };
+
+  const openClientTx = (cid, txType, editTx = null) => {
+    setSelectedClient(cid);
+    if (editTx) {
+      setForm({
+        editTxId: editTx.id,
+        clientId: cid,
+        txType: editTx.type,
+        amount: editTx.amount,
+        cat: editTx.cat,
+        note: editTx.note || "",
+        date: editTx.date,
+        workerId: editTx.workerId,
+        supplierId: editTx.supplierId,
+      });
+    } else {
+      setForm({
+        txType,
+        cat: txType === "income" ? "مقدم" : CLIENT_EXPENSE_CATS[0],
+        date: new Date().toISOString().split("T")[0],
+      });
+    }
+    setModal("addClientTx");
+  };
+
+  const handleFYChange = (fy) => {
+    setActiveFY(fy);
+    setShowFYPicker(false);
+    setSelectedClient(null);
+  };
+
   const value = {
     clients,
     setClients,
@@ -106,6 +249,18 @@ export function AppProvider({ children }) {
     closeDrawer,
     drawerAnimation,
     loaded,
+    saveClient,
+    saveClientTx,
+    saveGeneral,
+    saveWorker,
+    saveSupplier,
+    deleteClientTx,
+    deleteClient,
+    toggleStatus,
+    deleteWorker,
+    deleteSupplier,
+    openClientTx,
+    handleFYChange,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
