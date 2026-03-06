@@ -1,9 +1,11 @@
 import React from "react";
-import { Modal, Pressable, ScrollView, TouchableOpacity, Text, StyleSheet } from "react-native";
+import { Modal, Pressable, ScrollView, TouchableOpacity, Text, StyleSheet, Dimensions } from "react-native";
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 export default function CustomModal({ visible, onClose, children }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.modalOverlay} onPress={onClose}>
         <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
           <ScrollView showsVerticalScrollIndicator={false}>{children}</ScrollView>
@@ -18,7 +20,13 @@ export default function CustomModal({ visible, onClose, children }) {
 
 const styles = StyleSheet.create({
   modalOverlay: {
-    flex: 1,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
     backgroundColor: "rgba(0,0,0,0.65)",
     justifyContent: "center",
     alignItems: "center",
