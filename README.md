@@ -1,15 +1,15 @@
-# مول عموله — Money Manager Mobile
+# Money Manager Mobile
 
-A React Native (Expo) app for managing shop finances: clients, workers, suppliers, general expenses, and zakat calculation. Built for RTL (Arabic) with fiscal-year support.
+A React Native (Expo) app for managing business finances: clients, workers, suppliers, general expenses, and profit-based calculations. Built with RTL support and fiscal-year scoping.
 
 ## Features
 
 - **Dashboard** — Net profit, income/expense stats, monthly charts, client profitability summary
-- **Clients** — Add clients, track income & expenses per project, view transaction history
-- **Workers (الصنايعية)** — Manage workers, assign expenses (مصنعية), view totals per fiscal year
-- **Suppliers (الموردين)** — Manage suppliers, link purchases to clients (قماش، خشب، etc.)
+- **Clients** — Add clients, track income and expenses per project, view transaction history
+- **Workers** — Manage workers, assign expenses to jobs, view totals per fiscal year
+- **Suppliers** — Manage suppliers, link purchases to clients by category
 - **General expenses** — Track rent, utilities, wages, and other overhead by category
-- **Zakat (الزكاة)** — Calculate zakat based on net profit and configurable nisab (نصاب)
+- **Calculations** — Compute amounts based on net profit and a configurable threshold (e.g. nisab)
 
 Data is stored locally with AsyncStorage and scoped by fiscal year.
 
@@ -46,10 +46,10 @@ Data is stored locally with AsyncStorage and scoped by fiscal year.
 │   └── Modals.js         # All form modals
 ├── styles/
 │   └── AppStyles.js      # Shared styles
-├── constants/            # CURRENCY, categories, labels, NAV_ITEMS
+├── constants/             # Currency, categories, labels, nav items
 └── utils/
-    ├── helpers.js        # fmt, fiscal year helpers
-    └── storage.js        # initState, saveState
+    ├── helpers.js         # Formatting, fiscal year helpers
+    └── storage.js         # initState, saveState
 ```
 
 ## Getting Started
