@@ -1,11 +1,25 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { Animated, Dimensions } from "react-native";
-import { initState, saveState } from "../utils/storage";
+import { Animated, Dimensions, Platform } from "react-native";
+import { initState, saveState as storageSaveState } from "../utils/storage";
+import {
+  getFullState,
+  upsertClient,
+  deleteClient as dbDeleteClient,
+  upsertClientTx,
+  deleteClientTx as dbDeleteClientTx,
+  upsertGeneralTx,
+  upsertWorker,
+  deleteWorker as dbDeleteWorker,
+  upsertSupplier,
+  deleteSupplier as dbDeleteSupplier,
+  setSettings as dbSetSettings,
+} from "../utils/db";
 import { getCurrentFiscalYear } from "../utils/helpers";
 import { PROJECT_TYPES, CLIENT_EXPENSE_CATS, GENERAL_EXPENSE_CATS } from "../constants";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
+const IS_WEB = Platform.OS === "web";
 
 export function AppProvider({ children }) {
   const [clients, setClients] = useState([]);
@@ -48,11 +62,26 @@ export function AppProvider({ children }) {
     loadData();
   }, []);
 
+  // On web, persist full state to AsyncStorage when state changes (db is no-op on web)
   useEffect(() => {
-    if (loaded) {
-      saveState({ clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice });
+    if (IS_WEB && loaded) {
+      storageSaveState({ clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice });
     }
-  }, [clients, generalTxs, workers, suppliers, activeFY, nissabPrice, loaded]);
+  }, [IS_WEB, loaded, clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice]);
+
+  const resync = async () => {
+    if (IS_WEB) return; // on web we persist via useEffect; getFullState returns null
+    const data = await getFullState();
+    if (data) {
+      setClients(data.clients || []);
+      setGeneralTxs(data.generalTxs || []);
+      setWorkers(data.workers || []);
+      setSuppliers(data.suppliers || []);
+      setActiveFY(data.activeFY || getCurrentFiscalYear());
+      setCustomFYs(data.customFYs || []);
+      setNissabPrice(data.nissabPrice ?? 85000);
+    }
+  };
 
   useEffect(() => {
     if (showDrawer) {
@@ -73,117 +102,214 @@ export function AppProvider({ children }) {
     }).start(() => setShowDrawer(false));
   };
 
-  const saveClient = () => {
+  const saveClient = async () => {
     if (!form.name?.trim()) return;
-    setClients((p) => [
-      ...p,
-      {
-        id: Date.now(),
-        name: form.name.trim(),
-        project: form.project || PROJECT_TYPES[0],
-        status: "active",
-        note: form.note || "",
-        createdAt: new Date().toISOString().split("T")[0],
-        txs: [],
-      },
-    ]);
+    const newClient = {
+      id: Date.now(),
+      name: form.name.trim(),
+      project: form.project || PROJECT_TYPES[0],
+      status: "active",
+      note: form.note || "",
+      createdAt: new Date().toISOString().split("T")[0],
+      txs: [],
+    };
+    if (IS_WEB) {
+      setClients((p) => [...p, newClient]);
+    } else {
+      try {
+        await upsertClient(newClient);
+        await resync();
+      } catch (_) {}
+    }
     setModal(null);
     setForm({});
   };
 
-  const saveClientTx = () => {
+  const saveClientTx = async () => {
     if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
     const date = form.date || new Date().toISOString().split("T")[0];
+    const targetClientId = form.clientId || selectedClient;
+    const client = clients.find((c) => c.id === targetClientId);
+    if (!client) return;
     const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
     if (form.workerId) tx.workerId = form.workerId;
     if (form.supplierId) tx.supplierId = form.supplierId;
+    let updatedClient;
     if (form.editTxId) {
-      const targetClientId = form.clientId || selectedClient;
-      setClients((p) =>
-        p.map((c) =>
-          c.id === targetClientId
-            ? { ...c, txs: c.txs.map((t) => (t.id === form.editTxId ? { ...tx, id: t.id } : t)) }
-            : c
-        )
-      );
+      tx.id = form.editTxId;
+      updatedClient = {
+        ...client,
+        txs: client.txs.map((t) => (t.id === form.editTxId ? tx : t)),
+      };
     } else {
       tx.id = Date.now();
-      const targetClientId = form.clientId || selectedClient;
-      setClients((p) => p.map((c) => (c.id === targetClientId ? { ...c, txs: [...c.txs, tx] } : c)));
+      updatedClient = { ...client, txs: [...client.txs, tx] };
+    }
+    if (IS_WEB) {
+      setClients((p) => p.map((c) => (c.id === targetClientId ? updatedClient : c)));
+    } else {
+      try {
+        await upsertClient(updatedClient);
+        await resync();
+      } catch (_) {}
     }
     setModal(null);
     setForm({});
   };
 
-  const saveGeneral = () => {
+  const saveGeneral = async () => {
     if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
     const date = form.date || new Date().toISOString().split("T")[0];
-    setGeneralTxs((p) => [
-      ...p,
-      {
+    const tx = {
+      id: Date.now(),
+      amount: Number(form.amount),
+      cat: form.cat || GENERAL_EXPENSE_CATS[0],
+      note: form.note || "",
+      date,
+    };
+    if (IS_WEB) {
+      setGeneralTxs((p) => [...p, tx]);
+    } else {
+      try {
+        await upsertGeneralTx(tx);
+        await resync();
+      } catch (_) {}
+    }
+    setModal(null);
+    setForm({});
+  };
+
+  const saveWorker = async () => {
+    if (!form.name?.trim()) return;
+    if (form.editId) {
+      const w = workers.find((x) => x.id === form.editId);
+      if (!w) return;
+      const updated = { ...w, name: form.name.trim(), phone: form.phone || "" };
+      if (IS_WEB) {
+        setWorkers((p) => p.map((x) => (x.id === form.editId ? updated : x)));
+      } else {
+        try {
+          await upsertWorker(updated);
+          await resync();
+        } catch (_) {}
+      }
+    } else {
+      const newWorker = { id: Date.now(), name: form.name.trim(), phone: form.phone || "" };
+      if (IS_WEB) {
+        setWorkers((p) => [...p, newWorker]);
+      } else {
+        try {
+          await upsertWorker(newWorker);
+          await resync();
+        } catch (_) {}
+      }
+    }
+    setModal(null);
+    setForm({});
+  };
+
+  const saveSupplier = async () => {
+    if (!form.name?.trim()) return;
+    if (form.editId) {
+      const s = suppliers.find((x) => x.id === form.editId);
+      if (!s) return;
+      const updated = {
+        ...s,
+        name: form.name.trim(),
+        phone: form.phone || "",
+        category: form.category || "",
+      };
+      if (IS_WEB) {
+        setSuppliers((p) => p.map((x) => (x.id === form.editId ? updated : x)));
+      } else {
+        try {
+          await upsertSupplier(updated);
+          await resync();
+        } catch (_) {}
+      }
+    } else {
+      const newSupplier = {
         id: Date.now(),
-        amount: Number(form.amount),
-        cat: form.cat || GENERAL_EXPENSE_CATS[0],
-        note: form.note || "",
-        date,
-      },
-    ]);
-    setModal(null);
-    setForm({});
-  };
-
-  const saveWorker = () => {
-    if (!form.name?.trim()) return;
-    if (form.editId) {
-      setWorkers((p) =>
-        p.map((w) => (w.id === form.editId ? { ...w, name: form.name.trim(), phone: form.phone || "" } : w))
-      );
-    } else {
-      setWorkers((p) => [...p, { id: Date.now(), name: form.name.trim(), phone: form.phone || "" }]);
+        name: form.name.trim(),
+        phone: form.phone || "",
+        category: form.category || "",
+      };
+      if (IS_WEB) {
+        setSuppliers((p) => [...p, newSupplier]);
+      } else {
+        try {
+          await upsertSupplier(newSupplier);
+          await resync();
+        } catch (_) {}
+      }
     }
     setModal(null);
     setForm({});
   };
 
-  const saveSupplier = () => {
-    if (!form.name?.trim()) return;
-    if (form.editId) {
-      setSuppliers((p) =>
-        p.map((s) =>
-          s.id === form.editId
-            ? { ...s, name: form.name.trim(), phone: form.phone || "", category: form.category || "" }
-            : s
-        )
-      );
-    } else {
-      setSuppliers((p) => [
-        ...p,
-        { id: Date.now(), name: form.name.trim(), phone: form.phone || "", category: form.category || "" },
-      ]);
+  const deleteClientTx = async (cid, tid) => {
+    if (IS_WEB) {
+      setClients((p) => p.map((c) => (c.id === cid ? { ...c, txs: c.txs.filter((t) => t.id !== tid) } : c)));
+      return;
     }
-    setModal(null);
-    setForm({});
+    try {
+      await dbDeleteClientTx(cid, tid);
+      await resync();
+    } catch (_) {}
   };
 
-  const deleteClientTx = (cid, tid) =>
-    setClients((p) => p.map((c) => (c.id === cid ? { ...c, txs: c.txs.filter((t) => t.id !== tid) } : c)));
-
-  const deleteClient = (cid) => {
-    setClients((p) => p.filter((c) => c.id !== cid));
+  const deleteClient = async (cid) => {
+    if (IS_WEB) {
+      setClients((p) => p.filter((c) => c.id !== cid));
+      setSelectedClient(null);
+      setTab("clients");
+      return;
+    }
+    try {
+      await dbDeleteClient(cid);
+      await resync();
+    } catch (_) {}
     setSelectedClient(null);
     setTab("clients");
   };
 
-  const toggleStatus = (cid) =>
-    setClients((p) => p.map((c) => (c.id === cid ? { ...c, status: c.status === "active" ? "done" : "active" } : c)));
+  const toggleStatus = async (cid) => {
+    const client = clients.find((c) => c.id === cid);
+    if (!client) return;
+    const updated = { ...client, status: client.status === "active" ? "done" : "active" };
+    if (IS_WEB) {
+      setClients((p) => p.map((c) => (c.id === cid ? updated : c)));
+      return;
+    }
+    try {
+      await upsertClient(updated);
+      await resync();
+    } catch (_) {}
+  };
 
-  const deleteWorker = (id) => {
-    setWorkers((p) => p.filter((w) => w.id !== id));
+  const deleteWorker = async (id) => {
+    if (IS_WEB) {
+      setWorkers((p) => p.filter((w) => w.id !== id));
+      if (selectedWorker === id) setSelectedWorker(null);
+      return;
+    }
+    try {
+      await dbDeleteWorker(id);
+      await resync();
+    } catch (_) {}
     if (selectedWorker === id) setSelectedWorker(null);
   };
 
-  const deleteSupplier = (id) => {
-    setSuppliers((p) => p.filter((s) => s.id !== id));
+  const deleteSupplier = async (id) => {
+    if (IS_WEB) {
+      setSuppliers((p) => p.filter((s) => s.id !== id));
+      if (selectedSupplier === id) setSelectedSupplier(null);
+      return;
+    }
+    try {
+      await dbDeleteSupplier(id);
+      await resync();
+    } catch (_) {}
     if (selectedSupplier === id) setSelectedSupplier(null);
   };
 
@@ -211,10 +337,31 @@ export function AppProvider({ children }) {
     setModal("addClientTx");
   };
 
-  const handleFYChange = (fy) => {
+  const handleFYChange = async (fy) => {
     setActiveFY(fy);
     setShowFYPicker(false);
     setSelectedClient(null);
+    if (!IS_WEB) {
+      try {
+        await dbSetSettings({ activeFY: fy, customFYs, nissabPrice });
+      } catch (_) {}
+    }
+  };
+
+  const persistSettings = async (partial) => {
+    const next = {
+      activeFY: partial.activeFY !== undefined ? partial.activeFY : activeFY,
+      customFYs: partial.customFYs !== undefined ? partial.customFYs : customFYs,
+      nissabPrice: partial.nissabPrice !== undefined ? partial.nissabPrice : nissabPrice,
+    };
+    if (next.activeFY !== activeFY) setActiveFY(next.activeFY);
+    if (next.customFYs !== customFYs) setCustomFYs(next.customFYs);
+    if (next.nissabPrice !== nissabPrice) setNissabPrice(next.nissabPrice);
+    if (!IS_WEB) {
+      try {
+        await dbSetSettings(next);
+      } catch (_) {}
+    }
   };
 
   const value = {
@@ -265,6 +412,7 @@ export function AppProvider({ children }) {
     deleteSupplier,
     openClientTx,
     handleFYChange,
+    persistSettings,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

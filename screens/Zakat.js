@@ -9,7 +9,7 @@ import styles from "../styles/AppStyles";
 const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
-  const { clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice, setNissabPrice } =
+  const { clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice, setNissabPrice, persistSettings } =
     useApp();
   const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = appData;
@@ -47,6 +47,7 @@ export default function Zakat() {
               style={[styles.input, { width: 130, textAlign: "center", fontSize: 14 }]}
               value={nissabPrice.toString()}
               onChangeText={(text) => setNissabPrice(Number(text) || 0)}
+              onBlur={() => persistSettings({ nissabPrice })}
               keyboardType="numeric"
             />
             <Text style={styles.zakatNissabCurrency}>{CURRENCY}</Text>

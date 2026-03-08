@@ -14,9 +14,9 @@ export default function FiscalYear() {
     activeFY,
     customFYs,
     setActiveFY,
-    setCustomFYs,
     setModal,
     handleFYChange,
+    persistSettings,
   } = useApp();
   const { allFYs } = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
 
@@ -24,9 +24,9 @@ export default function FiscalYear() {
     handleFYChange(fy);
   };
 
-  const removeCustomFY = (fy) => {
+  const removeCustomFY = async (fy) => {
     if (fy === activeFY) return;
-    setCustomFYs((prev) => prev.filter((f) => f !== fy));
+    await persistSettings({ customFYs: (customFYs || []).filter((f) => f !== fy) });
   };
 
   return (

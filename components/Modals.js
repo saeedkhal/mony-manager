@@ -23,13 +23,13 @@ export default function Modals() {
     suppliers,
     activeFY,
     customFYs,
-    setCustomFYs,
     selectedClient,
     saveClient,
     saveClientTx,
     saveGeneral,
     saveWorker,
     saveSupplier,
+    persistSettings,
   } = useApp();
 
   const activeClient = clients.find((c) => c.id === selectedClient);
@@ -565,14 +565,14 @@ export default function Modals() {
         </View>
         <TouchableOpacity
           style={[styles.btn, styles.btnPrimary, styles.modalSaveBtn]}
-          onPress={() => {
+          onPress={async () => {
             const val = (form.customFY || "").trim();
             const match = val.match(/^(\d{4})\/(\d{4})$/);
             if (match) {
               const a = parseInt(match[1], 10);
               const b = parseInt(match[2], 10);
-              if (b === a + 1) {
-                setCustomFYs((prev) => (prev.includes(val) ? prev : [...prev, val]));
+              if (b === a + 1 && !(customFYs || []).includes(val)) {
+                await persistSettings({ customFYs: [...(customFYs || []), val] });
                 setForm((p) => ({ ...p, customFY: "" }));
                 setModal(null);
               }

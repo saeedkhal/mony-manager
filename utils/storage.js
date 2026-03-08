@@ -1,33 +1,46 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { loadState as dbLoadState, saveState as dbSaveState } from "./db";
 
+const LEGACY_KEY = "mall_v4";
+
+/**
+ * Load app state from SQLite. Returns { clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice } or null.
+ * On first run after switching from AsyncStorage, migrates legacy data from AsyncStorage into SQLite.
+ */
 export const initState = async () => {
   try {
-    // Check if AsyncStorage is available
-    if (!AsyncStorage || typeof AsyncStorage.getItem !== 'function') {
-      console.warn("AsyncStorage is not available");
-      return null;
+    let data = await dbLoadState();
+    if (data === null && AsyncStorage?.getItem) {
+      const raw = await AsyncStorage.getItem(LEGACY_KEY);
+      if (raw) {
+        const legacy = JSON.parse(raw);
+        data = {
+          clients: legacy.clients || [],
+          generalTxs: legacy.generalTxs || [],
+          workers: legacy.workers || [],
+          suppliers: legacy.suppliers || [],
+          activeFY: legacy.activeFY || null,
+          customFYs: legacy.customFYs || [],
+          nissabPrice: legacy.nissabPrice ?? null,
+        };
+        await dbSaveState(data);
+      }
     }
-    const data = await AsyncStorage.getItem("mall_v4");
-    return data ? JSON.parse(data) : null;
+    return data;
   } catch (error) {
-    // Silently fail - app will start with default state
-    console.warn("Error loading state (will use defaults):", error.message);
+    console.warn("Error loading state (will use defaults):", error?.message || error);
     return null;
   }
 };
 
+/**
+ * Persist full app state to SQLite.
+ */
 export const saveState = async (data) => {
   try {
-    // Check if AsyncStorage is available
-    if (!AsyncStorage || typeof AsyncStorage.setItem !== 'function') {
-      console.warn("AsyncStorage is not available, cannot save state");
-      return;
-    }
-    await AsyncStorage.setItem("mall_v4", JSON.stringify(data));
+    await dbSaveState(data);
   } catch (error) {
-    // Don't throw - just log the error so app continues to work
-    // The error is expected if native module isn't loaded yet
-    if (error.message && !error.message.includes('Native module is null')) {
+    if (error?.message && !error.message.includes("Native module is null")) {
       console.error("Error saving state:", error.message);
     }
   }
