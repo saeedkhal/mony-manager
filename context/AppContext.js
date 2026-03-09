@@ -2,10 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import { Animated, Dimensions, Platform } from "react-native";
 import { initState, saveState as storageSaveState } from "../utils/storage";
 import {
-  getFullState,
+  getClients,
+  getClientWithTxs,
+  getGeneralTxs,
+  getWorkers,
+  getSuppliers,
+  getSettings,
   upsertClient,
   deleteClient as dbDeleteClient,
-  upsertClientTx,
   deleteClientTx as dbDeleteClientTx,
   upsertGeneralTx,
   upsertWorker,
@@ -69,18 +73,38 @@ export function AppProvider({ children }) {
     }
   }, [IS_WEB, loaded, clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice]);
 
-  const resync = async () => {
-    if (IS_WEB) return; // on web we persist via useEffect; getFullState returns null
-    const data = await getFullState();
-    if (data) {
-      setClients(data.clients || []);
-      setGeneralTxs(data.generalTxs || []);
-      setWorkers(data.workers || []);
-      setSuppliers(data.suppliers || []);
-      setActiveFY(data.activeFY || getCurrentFiscalYear());
-      setCustomFYs(data.customFYs || []);
-      setNissabPrice(data.nissabPrice ?? 85000);
-    }
+  // Targeted refetch helpers (native only – fetch only what changed instead of full state)
+  const refetchClients = async () => {
+    if (IS_WEB) return;
+    const list = await getClients();
+    if (list.length >= 0) setClients(list);
+  };
+  const refetchClient = async (clientId) => {
+    if (IS_WEB) return;
+    const client = await getClientWithTxs(clientId);
+    if (client) setClients((p) => p.map((c) => (c.id === clientId ? client : c)));
+  };
+  const refetchGeneralTxs = async () => {
+    if (IS_WEB) return;
+    const list = await getGeneralTxs();
+    if (list.length >= 0) setGeneralTxs(list);
+  };
+  const refetchWorkers = async () => {
+    if (IS_WEB) return;
+    const list = await getWorkers();
+    if (list.length >= 0) setWorkers(list);
+  };
+  const refetchSuppliers = async () => {
+    if (IS_WEB) return;
+    const list = await getSuppliers();
+    if (list.length >= 0) setSuppliers(list);
+  };
+  const refetchSettings = async () => {
+    if (IS_WEB) return;
+    const s = await getSettings();
+    setActiveFY(s.activeFY || getCurrentFiscalYear());
+    setCustomFYs(s.customFYs || []);
+    setNissabPrice(s.nissabPrice ?? 85000);
   };
 
   useEffect(() => {
@@ -118,7 +142,7 @@ export function AppProvider({ children }) {
     } else {
       try {
         await upsertClient(newClient);
-        await resync();
+        await refetchClients();
       } catch (_) {}
     }
     setModal(null);
@@ -150,7 +174,7 @@ export function AppProvider({ children }) {
     } else {
       try {
         await upsertClient(updatedClient);
-        await resync();
+        await refetchClient(targetClientId);
       } catch (_) {}
     }
     setModal(null);
@@ -172,7 +196,7 @@ export function AppProvider({ children }) {
     } else {
       try {
         await upsertGeneralTx(tx);
-        await resync();
+        await refetchGeneralTxs();
       } catch (_) {}
     }
     setModal(null);
@@ -190,7 +214,7 @@ export function AppProvider({ children }) {
       } else {
         try {
           await upsertWorker(updated);
-          await resync();
+          await refetchWorkers();
         } catch (_) {}
       }
     } else {
@@ -200,7 +224,7 @@ export function AppProvider({ children }) {
       } else {
         try {
           await upsertWorker(newWorker);
-          await resync();
+          await refetchWorkers();
         } catch (_) {}
       }
     }
@@ -224,7 +248,7 @@ export function AppProvider({ children }) {
       } else {
         try {
           await upsertSupplier(updated);
-          await resync();
+          await refetchSuppliers();
         } catch (_) {}
       }
     } else {
@@ -239,7 +263,7 @@ export function AppProvider({ children }) {
       } else {
         try {
           await upsertSupplier(newSupplier);
-          await resync();
+          await refetchSuppliers();
         } catch (_) {}
       }
     }
@@ -254,7 +278,7 @@ export function AppProvider({ children }) {
     }
     try {
       await dbDeleteClientTx(cid, tid);
-      await resync();
+      await refetchClient(cid);
     } catch (_) {}
   };
 
@@ -267,7 +291,7 @@ export function AppProvider({ children }) {
     }
     try {
       await dbDeleteClient(cid);
-      await resync();
+      await refetchClients();
     } catch (_) {}
     setSelectedClient(null);
     setTab("clients");
@@ -283,7 +307,7 @@ export function AppProvider({ children }) {
     }
     try {
       await upsertClient(updated);
-      await resync();
+      await refetchClient(cid);
     } catch (_) {}
   };
 
@@ -295,7 +319,7 @@ export function AppProvider({ children }) {
     }
     try {
       await dbDeleteWorker(id);
-      await resync();
+      await refetchWorkers();
     } catch (_) {}
     if (selectedWorker === id) setSelectedWorker(null);
   };
@@ -308,7 +332,7 @@ export function AppProvider({ children }) {
     }
     try {
       await dbDeleteSupplier(id);
-      await resync();
+      await refetchSuppliers();
     } catch (_) {}
     if (selectedSupplier === id) setSelectedSupplier(null);
   };
@@ -344,6 +368,7 @@ export function AppProvider({ children }) {
     if (!IS_WEB) {
       try {
         await dbSetSettings({ activeFY: fy, customFYs, nissabPrice });
+        await refetchSettings();
       } catch (_) {}
     }
   };
@@ -360,6 +385,7 @@ export function AppProvider({ children }) {
     if (!IS_WEB) {
       try {
         await dbSetSettings(next);
+        await refetchSettings();
       } catch (_) {}
     }
   };

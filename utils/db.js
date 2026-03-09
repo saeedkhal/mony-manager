@@ -1,10 +1,13 @@
-import * as SQLite from "expo-sqlite";
+import { Platform } from "react-native";
 
+const IS_WEB = Platform.OS === "web";
 const DB_NAME = "mall_v4.db";
 let db = null;
 
 async function getDb() {
+  if (IS_WEB) return null;
   if (db) return db;
+  const SQLite = require("expo-sqlite");
   db = await SQLite.openDatabaseAsync(DB_NAME);
   await initSchema(db);
   return db;
@@ -86,6 +89,7 @@ function rowToClient(c, txRows) {
 export async function getFullState() {
   try {
     const database = await getDb();
+    if (!database) return null;
 
     const clientsRows = await database.getAllAsync(
       "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
@@ -146,6 +150,124 @@ export async function getFullState() {
   }
 }
 
+// ---------- Targeted getters (fetch only what you need) ----------
+
+/** Get all clients with their txs. Returns [] on error. */
+export async function getClients() {
+  try {
+    const database = await getDb();
+    if (!database) return [];
+
+    const clientsRows = await database.getAllAsync(
+      "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
+    );
+    const txRows = await database.getAllAsync(
+      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_txs ORDER BY client_id, id"
+    );
+    return clientsRows.map((c) => rowToClient(c, txRows));
+  } catch (e) {
+    console.warn("DB getClients error:", e?.message || e);
+    return [];
+  }
+}
+
+/** Get one client with txs by id. Returns null if not found or error. */
+export async function getClientWithTxs(clientId) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+
+    const clientRows = await database.getAllAsync(
+      "SELECT id, name, project, status, note, created_at FROM clients WHERE id = ?",
+      clientId
+    );
+    if (clientRows.length === 0) return null;
+    const txRows = await database.getAllAsync(
+      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_txs WHERE client_id = ? ORDER BY id",
+      clientId
+    );
+    return rowToClient(clientRows[0], txRows);
+  } catch (e) {
+    console.warn("DB getClientWithTxs error:", e?.message || e);
+    return null;
+  }
+}
+
+/** Get all general txs. Returns [] on error. */
+export async function getGeneralTxs() {
+  try {
+    const database = await getDb();
+    if (!database) return [];
+
+    const rows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general_txs ORDER BY id");
+    return rows.map((r) => ({
+      id: r.id,
+      amount: r.amount,
+      cat: r.cat,
+      note: r.note || "",
+      date: r.date,
+    }));
+  } catch (e) {
+    console.warn("DB getGeneralTxs error:", e?.message || e);
+    return [];
+  }
+}
+
+/** Get all workers. Returns [] on error. */
+export async function getWorkers() {
+  try {
+    const database = await getDb();
+    if (!database) return [];
+
+    const rows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
+    return rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone || "" }));
+  } catch (e) {
+    console.warn("DB getWorkers error:", e?.message || e);
+    return [];
+  }
+}
+
+/** Get all suppliers. Returns [] on error. */
+export async function getSuppliers() {
+  try {
+    const database = await getDb();
+    if (!database) return [];
+
+    const rows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      phone: r.phone || "",
+      category: r.category || "",
+    }));
+  } catch (e) {
+    console.warn("DB getSuppliers error:", e?.message || e);
+    return [];
+  }
+}
+
+/** Get settings only. Returns { activeFY, customFYs, nissabPrice } with defaults on error. */
+export async function getSettings() {
+  try {
+    const database = await getDb();
+    if (!database) return { activeFY: null, customFYs: [], nissabPrice: 85000 };
+
+    const rows = await database.getAllAsync("SELECT key, value FROM settings");
+    const settings = {};
+    for (const row of rows) {
+      settings[row.key] = row.value;
+    }
+    return {
+      activeFY: settings.activeFY || null,
+      customFYs: settings.customFYs ? JSON.parse(settings.customFYs) : [],
+      nissabPrice: settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000,
+    };
+  } catch (e) {
+    console.warn("DB getSettings error:", e?.message || e);
+    return { activeFY: null, customFYs: [], nissabPrice: 85000 };
+  }
+}
+
 /** Alias for storage.js init - same as getFullState */
 export async function loadState() {
   return getFullState();
@@ -159,6 +281,7 @@ export async function loadState() {
 export async function saveState(data) {
   try {
     const database = await getDb();
+    if (!database) return;
 
     for (const c of data.clients || []) {
       await database.runAsync(
@@ -229,6 +352,7 @@ export async function upsertClient(client) {
   if (client == null || client.id == null) return;
   try {
     const database = await getDb();
+    if (!database) return;
 
     await database.runAsync(
       "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -265,6 +389,8 @@ export async function upsertClient(client) {
 export async function deleteClient(id) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync("DELETE FROM client_txs WHERE client_id = ?", id);
     await database.runAsync("DELETE FROM clients WHERE id = ?", id);
   } catch (e) {
@@ -278,6 +404,8 @@ export async function deleteClient(id) {
 export async function upsertClientTx(clientId, tx) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync(
       "INSERT OR REPLACE INTO client_txs (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       tx.id,
@@ -301,6 +429,8 @@ export async function upsertClientTx(clientId, tx) {
 export async function deleteClientTx(clientId, txId) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync("DELETE FROM client_txs WHERE client_id = ? AND id = ?", clientId, txId);
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
@@ -313,6 +443,8 @@ export async function deleteClientTx(clientId, txId) {
 export async function upsertGeneralTx(tx) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync(
       "INSERT OR REPLACE INTO general_txs (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
       tx.id,
@@ -332,6 +464,8 @@ export async function upsertGeneralTx(tx) {
 export async function deleteGeneralTx(id) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync("DELETE FROM general_txs WHERE id = ?", id);
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
@@ -344,6 +478,8 @@ export async function deleteGeneralTx(id) {
 export async function upsertWorker(worker) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync(
       "INSERT OR REPLACE INTO workers (id, name, phone) VALUES (?, ?, ?)",
       worker.id,
@@ -361,6 +497,8 @@ export async function upsertWorker(worker) {
 export async function deleteWorker(id) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync("DELETE FROM workers WHERE id = ?", id);
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
@@ -373,6 +511,8 @@ export async function deleteWorker(id) {
 export async function upsertSupplier(supplier) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync(
       "INSERT OR REPLACE INTO suppliers (id, name, phone, category) VALUES (?, ?, ?, ?)",
       supplier.id,
@@ -391,6 +531,8 @@ export async function upsertSupplier(supplier) {
 export async function deleteSupplier(id) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     await database.runAsync("DELETE FROM suppliers WHERE id = ?", id);
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
@@ -403,6 +545,8 @@ export async function deleteSupplier(id) {
 export async function setSettings(settings) {
   try {
     const database = await getDb();
+    if (!database) return;
+
     if (settings.activeFY !== undefined) {
       await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "activeFY", String(settings.activeFY));
     }
