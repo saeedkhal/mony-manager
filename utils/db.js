@@ -2,7 +2,40 @@ import { Platform } from "react-native";
 
 const IS_WEB = Platform.OS === "web";
 const DB_NAME = "mall_v4.db";
+const WEB_STORAGE_KEY = "mall_v4";
 let db = null;
+
+// Web: read full state from AsyncStorage (same shape as getFullState)
+async function getWebState() {
+  if (!IS_WEB) return null;
+  try {
+    const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+    const raw = await AsyncStorage.getItem(WEB_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return {
+      clients: data.clients || [],
+      generalTxs: data.generalTxs || [],
+      workers: data.workers || [],
+      suppliers: data.suppliers || [],
+      activeFY: data.activeFY || null,
+      customFYs: data.customFYs || [],
+      nissabPrice: data.nissabPrice != null ? Number(data.nissabPrice) : 85000,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function setWebState(data) {
+  if (!IS_WEB) return;
+  try {
+    const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+    await AsyncStorage.setItem(WEB_STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("setWebState error:", e?.message);
+  }
+}
 
 async function getDb() {
   if (IS_WEB) return null;
@@ -85,11 +118,12 @@ function rowToClient(c, txRows) {
 
 /**
  * Load full app state from SQLite (for initial load and resync). Returns same shape as before.
+ * On web, reads from AsyncStorage.
  */
 export async function getFullState() {
   try {
     const database = await getDb();
-    if (!database) return null;
+    if (!database) return getWebState();
 
     const clientsRows = await database.getAllAsync(
       "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
@@ -152,11 +186,14 @@ export async function getFullState() {
 
 // ---------- Targeted getters (fetch only what you need) ----------
 
-/** Get all clients with their txs. Returns [] on error. */
+/** Get all clients with their txs. Returns [] on error. On web reads from AsyncStorage. */
 export async function getClients() {
   try {
     const database = await getDb();
-    if (!database) return [];
+    if (!database) {
+      const state = await getWebState();
+      return state ? state.clients : [];
+    }
 
     const clientsRows = await database.getAllAsync(
       "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
@@ -171,11 +208,16 @@ export async function getClients() {
   }
 }
 
-/** Get one client with txs by id. Returns null if not found or error. */
+/** Get one client with txs by id. Returns null if not found or error. On web reads from AsyncStorage. */
 export async function getClientWithTxs(clientId) {
   try {
     const database = await getDb();
-    if (!database) return null;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return null;
+      const c = state.clients.find((x) => String(x.id) === String(clientId));
+      return c || null;
+    }
 
     const clientRows = await database.getAllAsync(
       "SELECT id, name, project, status, note, created_at FROM clients WHERE id = ?",
@@ -193,11 +235,14 @@ export async function getClientWithTxs(clientId) {
   }
 }
 
-/** Get all general txs. Returns [] on error. */
+/** Get all general txs. Returns [] on error. On web reads from AsyncStorage. */
 export async function getGeneralTxs() {
   try {
     const database = await getDb();
-    if (!database) return [];
+    if (!database) {
+      const state = await getWebState();
+      return state ? state.generalTxs : [];
+    }
 
     const rows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general_txs ORDER BY id");
     return rows.map((r) => ({
@@ -213,11 +258,14 @@ export async function getGeneralTxs() {
   }
 }
 
-/** Get all workers. Returns [] on error. */
+/** Get all workers. Returns [] on error. On web reads from AsyncStorage. */
 export async function getWorkers() {
   try {
     const database = await getDb();
-    if (!database) return [];
+    if (!database) {
+      const state = await getWebState();
+      return state ? state.workers : [];
+    }
 
     const rows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
     return rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone || "" }));
@@ -227,11 +275,14 @@ export async function getWorkers() {
   }
 }
 
-/** Get all suppliers. Returns [] on error. */
+/** Get all suppliers. Returns [] on error. On web reads from AsyncStorage. */
 export async function getSuppliers() {
   try {
     const database = await getDb();
-    if (!database) return [];
+    if (!database) {
+      const state = await getWebState();
+      return state ? state.suppliers : [];
+    }
 
     const rows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
     return rows.map((r) => ({
@@ -246,11 +297,16 @@ export async function getSuppliers() {
   }
 }
 
-/** Get settings only. Returns { activeFY, customFYs, nissabPrice } with defaults on error. */
+/** Get settings only. Returns { activeFY, customFYs, nissabPrice } with defaults on error. On web reads from AsyncStorage. */
 export async function getSettings() {
   try {
     const database = await getDb();
-    if (!database) return { activeFY: null, customFYs: [], nissabPrice: 85000 };
+    if (!database) {
+      const state = await getWebState();
+      return state
+        ? { activeFY: state.activeFY, customFYs: state.customFYs || [], nissabPrice: state.nissabPrice ?? 85000 }
+        : { activeFY: null, customFYs: [], nissabPrice: 85000 };
+    }
 
     const rows = await database.getAllAsync("SELECT key, value FROM settings");
     const settings = {};
@@ -275,13 +331,23 @@ export async function loadState() {
 
 /**
  * Persist full state (only used for migration from AsyncStorage). Prefer incremental writes.
- * Does NOT delete all data – only upserts the given payload (INSERT OR REPLACE) and replaces
- * per-client txs so existing rows not in the payload are left unchanged.
+ * On web, writes to AsyncStorage.
  */
 export async function saveState(data) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      await setWebState({
+        clients: data.clients || [],
+        generalTxs: data.generalTxs || [],
+        workers: data.workers || [],
+        suppliers: data.suppliers || [],
+        activeFY: data.activeFY != null ? data.activeFY : null,
+        customFYs: data.customFYs || [],
+        nissabPrice: data.nissabPrice != null ? data.nissabPrice : 85000,
+      });
+      return;
+    }
 
     for (const c of data.clients || []) {
       await database.runAsync(
@@ -352,7 +418,17 @@ export async function upsertClient(client) {
   if (client == null || client.id == null) return;
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const idx = state.clients.findIndex((c) => String(c.id) === String(client.id));
+      const next = { ...client, txs: client.txs || [] };
+      const clients = [...state.clients];
+      if (idx >= 0) clients[idx] = next;
+      else clients.push(next);
+      await setWebState({ ...state, clients });
+      return;
+    }
 
     await database.runAsync(
       "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -389,7 +465,13 @@ export async function upsertClient(client) {
 export async function deleteClient(id) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const clients = state.clients.filter((c) => String(c.id) !== String(id));
+      await setWebState({ ...state, clients });
+      return;
+    }
 
     await database.runAsync("DELETE FROM client_txs WHERE client_id = ?", id);
     await database.runAsync("DELETE FROM clients WHERE id = ?", id);
@@ -404,7 +486,21 @@ export async function deleteClient(id) {
 export async function upsertClientTx(clientId, tx) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const clients = state.clients.map((c) => {
+        if (String(c.id) !== String(clientId)) return c;
+        const txs = [...(c.txs || [])];
+        const i = txs.findIndex((t) => String(t.id) === String(tx.id));
+        const row = { ...tx, id: tx.id, type: tx.type || "income", amount: tx.amount, cat: tx.cat || "", note: tx.note || "", date: tx.date || "", workerId: tx.workerId, supplierId: tx.supplierId };
+        if (i >= 0) txs[i] = row;
+        else txs.push(row);
+        return { ...c, txs };
+      });
+      await setWebState({ ...state, clients });
+      return;
+    }
 
     await database.runAsync(
       "INSERT OR REPLACE INTO client_txs (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -429,7 +525,17 @@ export async function upsertClientTx(clientId, tx) {
 export async function deleteClientTx(clientId, txId) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const clients = state.clients.map((c) => {
+        if (String(c.id) !== String(clientId)) return c;
+        const txs = (c.txs || []).filter((t) => String(t.id) !== String(txId));
+        return { ...c, txs };
+      });
+      await setWebState({ ...state, clients });
+      return;
+    }
 
     await database.runAsync("DELETE FROM client_txs WHERE client_id = ? AND id = ?", clientId, txId);
   } catch (e) {
@@ -443,7 +549,17 @@ export async function deleteClientTx(clientId, txId) {
 export async function upsertGeneralTx(tx) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const generalTxs = [...(state.generalTxs || [])];
+      const row = { id: tx.id, amount: tx.amount, cat: tx.cat || "", note: tx.note || "", date: tx.date || "" };
+      const i = generalTxs.findIndex((t) => String(t.id) === String(tx.id));
+      if (i >= 0) generalTxs[i] = row;
+      else generalTxs.push(row);
+      await setWebState({ ...state, generalTxs });
+      return;
+    }
 
     await database.runAsync(
       "INSERT OR REPLACE INTO general_txs (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
@@ -464,7 +580,13 @@ export async function upsertGeneralTx(tx) {
 export async function deleteGeneralTx(id) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const generalTxs = (state.generalTxs || []).filter((t) => String(t.id) !== String(id));
+      await setWebState({ ...state, generalTxs });
+      return;
+    }
 
     await database.runAsync("DELETE FROM general_txs WHERE id = ?", id);
   } catch (e) {
@@ -478,7 +600,17 @@ export async function deleteGeneralTx(id) {
 export async function upsertWorker(worker) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const workers = [...(state.workers || [])];
+      const row = { id: worker.id, name: worker.name, phone: worker.phone || "" };
+      const i = workers.findIndex((w) => String(w.id) === String(worker.id));
+      if (i >= 0) workers[i] = row;
+      else workers.push(row);
+      await setWebState({ ...state, workers });
+      return;
+    }
 
     await database.runAsync(
       "INSERT OR REPLACE INTO workers (id, name, phone) VALUES (?, ?, ?)",
@@ -497,7 +629,13 @@ export async function upsertWorker(worker) {
 export async function deleteWorker(id) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const workers = (state.workers || []).filter((w) => String(w.id) !== String(id));
+      await setWebState({ ...state, workers });
+      return;
+    }
 
     await database.runAsync("DELETE FROM workers WHERE id = ?", id);
   } catch (e) {
@@ -511,7 +649,17 @@ export async function deleteWorker(id) {
 export async function upsertSupplier(supplier) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const suppliers = [...(state.suppliers || [])];
+      const row = { id: supplier.id, name: supplier.name, phone: supplier.phone || "", category: supplier.category || "" };
+      const i = suppliers.findIndex((s) => String(s.id) === String(supplier.id));
+      if (i >= 0) suppliers[i] = row;
+      else suppliers.push(row);
+      await setWebState({ ...state, suppliers });
+      return;
+    }
 
     await database.runAsync(
       "INSERT OR REPLACE INTO suppliers (id, name, phone, category) VALUES (?, ?, ?, ?)",
@@ -531,7 +679,13 @@ export async function upsertSupplier(supplier) {
 export async function deleteSupplier(id) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      if (!state) return;
+      const suppliers = (state.suppliers || []).filter((s) => String(s.id) !== String(id));
+      await setWebState({ ...state, suppliers });
+      return;
+    }
 
     await database.runAsync("DELETE FROM suppliers WHERE id = ?", id);
   } catch (e) {
@@ -545,7 +699,22 @@ export async function deleteSupplier(id) {
 export async function setSettings(settings) {
   try {
     const database = await getDb();
-    if (!database) return;
+    if (!database) {
+      const state = await getWebState();
+      const next = {
+        activeFY: settings.activeFY !== undefined ? settings.activeFY : (state && state.activeFY) ?? null,
+        customFYs: settings.customFYs !== undefined ? settings.customFYs : (state && state.customFYs) ?? [],
+        nissabPrice: settings.nissabPrice !== undefined ? settings.nissabPrice : (state && state.nissabPrice) ?? 85000,
+      };
+      await setWebState({
+        clients: (state && state.clients) || [],
+        generalTxs: (state && state.generalTxs) || [],
+        workers: (state && state.workers) || [],
+        suppliers: (state && state.suppliers) || [],
+        ...next,
+      });
+      return;
+    }
 
     if (settings.activeFY !== undefined) {
       await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "activeFY", String(settings.activeFY));

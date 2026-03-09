@@ -1,10 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { Animated, Dimensions, Platform } from "react-native";
-import { initState, saveState as storageSaveState } from "../utils/storage";
+import { initState } from "../utils/storage";
 import {
-  getClients,
   getClientWithTxs,
-  getGeneralTxs,
   getWorkers,
   getSuppliers,
   getSettings,
@@ -12,6 +10,7 @@ import {
   deleteClient as dbDeleteClient,
   deleteClientTx as dbDeleteClientTx,
   upsertGeneralTx,
+  deleteGeneralTx as dbDeleteGeneralTx,
   upsertWorker,
   deleteWorker as dbDeleteWorker,
   upsertSupplier,
@@ -23,17 +22,12 @@ import { PROJECT_TYPES, CLIENT_EXPENSE_CATS, GENERAL_EXPENSE_CATS } from "../con
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
-const IS_WEB = Platform.OS === "web";
 
 export function AppProvider({ children }) {
-  const [clients, setClients] = useState([]);
-  const [generalTxs, setGeneralTxs] = useState([]);
-  const [workers, setWorkers] = useState([
-    { id: 1, name: "عمرو", phone: "" },
-    { id: 2, name: "أيمن", phone: "" },
-    { id: 3, name: "علي", phone: "" },
-  ]);
-  const [suppliers, setSuppliers] = useState([]);
+  const [clientsVersion, setClientsVersion] = useState(0);
+  const [generalTxsVersion, setGeneralTxsVersion] = useState(0);
+  const [workersVersion, setWorkersVersion] = useState(0);
+  const [suppliersVersion, setSuppliersVersion] = useState(0);
   const [activeFY, setActiveFY] = useState(getCurrentFiscalYear());
   const [customFYs, setCustomFYs] = useState([]);
   const [nissabPrice, setNissabPrice] = useState(85000);
@@ -47,65 +41,30 @@ export function AppProvider({ children }) {
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [dataLoadingCount, setDataLoadingCount] = useState(0);
   const drawerAnimation = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
+
+  const addDataLoading = () => setDataLoadingCount((c) => c + 1);
+  const removeDataLoading = () => setDataLoadingCount((c) => Math.max(0, c - 1));
 
   useEffect(() => {
     const loadData = async () => {
-      const saved = await initState();
-      if (saved) {
-        setClients(saved.clients || []);
-        setGeneralTxs(saved.generalTxs || []);
-        setWorkers(saved.workers || workers);
-        setSuppliers(saved.suppliers || []);
-        setActiveFY(saved.activeFY || getCurrentFiscalYear());
-        setCustomFYs(saved.customFYs || []);
-        setNissabPrice(saved.nissabPrice || 85000);
+      await initState();
+      const s = await getSettings();
+      if (s) {
+        setActiveFY(s.activeFY || getCurrentFiscalYear());
+        setCustomFYs(s.customFYs || []);
+        setNissabPrice(s.nissabPrice ?? 85000);
       }
       setLoaded(true);
     };
     loadData();
   }, []);
 
-  // On web, persist full state to AsyncStorage when state changes (db is no-op on web)
-  useEffect(() => {
-    if (IS_WEB && loaded) {
-      storageSaveState({ clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice });
-    }
-  }, [IS_WEB, loaded, clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice]);
-
-  // Targeted refetch helpers (native only – fetch only what changed instead of full state)
-  const refetchClients = async () => {
-    if (IS_WEB) return;
-    const list = await getClients();
-    if (list.length >= 0) setClients(list);
-  };
-  const refetchClient = async (clientId) => {
-    if (IS_WEB) return;
-    const client = await getClientWithTxs(clientId);
-    if (client) setClients((p) => p.map((c) => (c.id === clientId ? client : c)));
-  };
-  const refetchGeneralTxs = async () => {
-    if (IS_WEB) return;
-    const list = await getGeneralTxs();
-    if (list.length >= 0) setGeneralTxs(list);
-  };
-  const refetchWorkers = async () => {
-    if (IS_WEB) return;
-    const list = await getWorkers();
-    if (list.length >= 0) setWorkers(list);
-  };
-  const refetchSuppliers = async () => {
-    if (IS_WEB) return;
-    const list = await getSuppliers();
-    if (list.length >= 0) setSuppliers(list);
-  };
-  const refetchSettings = async () => {
-    if (IS_WEB) return;
-    const s = await getSettings();
-    setActiveFY(s.activeFY || getCurrentFiscalYear());
-    setCustomFYs(s.customFYs || []);
-    setNissabPrice(s.nissabPrice ?? 85000);
-  };
+  const bumpClients = () => setClientsVersion((v) => v + 1);
+  const bumpGeneralTxs = () => setGeneralTxsVersion((v) => v + 1);
+  const bumpWorkers = () => setWorkersVersion((v) => v + 1);
+  const bumpSuppliers = () => setSuppliersVersion((v) => v + 1);
 
   useEffect(() => {
     if (showDrawer) {
@@ -137,14 +96,10 @@ export function AppProvider({ children }) {
       createdAt: new Date().toISOString().split("T")[0],
       txs: [],
     };
-    if (IS_WEB) {
-      setClients((p) => [...p, newClient]);
-    } else {
-      try {
-        await upsertClient(newClient);
-        await refetchClients();
-      } catch (_) {}
-    }
+    try {
+      await upsertClient(newClient);
+      bumpClients();
+    } catch (_) {}
     setModal(null);
     setForm({});
   };
@@ -153,7 +108,7 @@ export function AppProvider({ children }) {
     if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
     const date = form.date || new Date().toISOString().split("T")[0];
     const targetClientId = form.clientId || selectedClient;
-    const client = clients.find((c) => c.id === targetClientId);
+    const client = await getClientWithTxs(targetClientId);
     if (!client) return;
     const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
     if (form.workerId) tx.workerId = form.workerId;
@@ -163,20 +118,16 @@ export function AppProvider({ children }) {
       tx.id = form.editTxId;
       updatedClient = {
         ...client,
-        txs: client.txs.map((t) => (t.id === form.editTxId ? tx : t)),
+        txs: (client.txs || []).map((t) => (t.id === form.editTxId ? tx : t)),
       };
     } else {
       tx.id = Date.now();
-      updatedClient = { ...client, txs: [...client.txs, tx] };
+      updatedClient = { ...client, txs: [...(client.txs || []), tx] };
     }
-    if (IS_WEB) {
-      setClients((p) => p.map((c) => (c.id === targetClientId ? updatedClient : c)));
-    } else {
-      try {
-        await upsertClient(updatedClient);
-        await refetchClient(targetClientId);
-      } catch (_) {}
-    }
+    try {
+      await upsertClient(updatedClient);
+      bumpClients();
+    } catch (_) {}
     setModal(null);
     setForm({});
   };
@@ -185,20 +136,16 @@ export function AppProvider({ children }) {
     if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
     const date = form.date || new Date().toISOString().split("T")[0];
     const tx = {
-      id: Date.now(),
+      id: form.editTxId || Date.now(),
       amount: Number(form.amount),
       cat: form.cat || GENERAL_EXPENSE_CATS[0],
       note: form.note || "",
       date,
     };
-    if (IS_WEB) {
-      setGeneralTxs((p) => [...p, tx]);
-    } else {
-      try {
-        await upsertGeneralTx(tx);
-        await refetchGeneralTxs();
-      } catch (_) {}
-    }
+    try {
+      await upsertGeneralTx(tx);
+      bumpGeneralTxs();
+    } catch (_) {}
     setModal(null);
     setForm({});
   };
@@ -206,27 +153,20 @@ export function AppProvider({ children }) {
   const saveWorker = async () => {
     if (!form.name?.trim()) return;
     if (form.editId) {
-      const w = workers.find((x) => x.id === form.editId);
+      const list = await getWorkers();
+      const w = list.find((x) => x.id === form.editId);
       if (!w) return;
       const updated = { ...w, name: form.name.trim(), phone: form.phone || "" };
-      if (IS_WEB) {
-        setWorkers((p) => p.map((x) => (x.id === form.editId ? updated : x)));
-      } else {
-        try {
-          await upsertWorker(updated);
-          await refetchWorkers();
-        } catch (_) {}
-      }
+      try {
+        await upsertWorker(updated);
+        bumpWorkers();
+      } catch (_) {}
     } else {
       const newWorker = { id: Date.now(), name: form.name.trim(), phone: form.phone || "" };
-      if (IS_WEB) {
-        setWorkers((p) => [...p, newWorker]);
-      } else {
-        try {
-          await upsertWorker(newWorker);
-          await refetchWorkers();
-        } catch (_) {}
-      }
+      try {
+        await upsertWorker(newWorker);
+        bumpWorkers();
+      } catch (_) {}
     }
     setModal(null);
     setForm({});
@@ -235,7 +175,8 @@ export function AppProvider({ children }) {
   const saveSupplier = async () => {
     if (!form.name?.trim()) return;
     if (form.editId) {
-      const s = suppliers.find((x) => x.id === form.editId);
+      const list = await getSuppliers();
+      const s = list.find((x) => x.id === form.editId);
       if (!s) return;
       const updated = {
         ...s,
@@ -243,14 +184,10 @@ export function AppProvider({ children }) {
         phone: form.phone || "",
         category: form.category || "",
       };
-      if (IS_WEB) {
-        setSuppliers((p) => p.map((x) => (x.id === form.editId ? updated : x)));
-      } else {
-        try {
-          await upsertSupplier(updated);
-          await refetchSuppliers();
-        } catch (_) {}
-      }
+      try {
+        await upsertSupplier(updated);
+        bumpSuppliers();
+      } catch (_) {}
     } else {
       const newSupplier = {
         id: Date.now(),
@@ -258,81 +195,60 @@ export function AppProvider({ children }) {
         phone: form.phone || "",
         category: form.category || "",
       };
-      if (IS_WEB) {
-        setSuppliers((p) => [...p, newSupplier]);
-      } else {
-        try {
-          await upsertSupplier(newSupplier);
-          await refetchSuppliers();
-        } catch (_) {}
-      }
+      try {
+        await upsertSupplier(newSupplier);
+        bumpSuppliers();
+      } catch (_) {}
     }
     setModal(null);
     setForm({});
   };
 
   const deleteClientTx = async (cid, tid) => {
-    if (IS_WEB) {
-      setClients((p) => p.map((c) => (c.id === cid ? { ...c, txs: c.txs.filter((t) => t.id !== tid) } : c)));
-      return;
-    }
     try {
       await dbDeleteClientTx(cid, tid);
-      await refetchClient(cid);
+      bumpClients();
+    } catch (_) {}
+  };
+
+  const deleteGeneralTx = async (id) => {
+    try {
+      await dbDeleteGeneralTx(id);
+      bumpGeneralTxs();
     } catch (_) {}
   };
 
   const deleteClient = async (cid) => {
-    if (IS_WEB) {
-      setClients((p) => p.filter((c) => c.id !== cid));
-      setSelectedClient(null);
-      setTab("clients");
-      return;
-    }
     try {
       await dbDeleteClient(cid);
-      await refetchClients();
+      bumpClients();
     } catch (_) {}
     setSelectedClient(null);
     setTab("clients");
   };
 
   const toggleStatus = async (cid) => {
-    const client = clients.find((c) => c.id === cid);
+    const client = await getClientWithTxs(cid);
     if (!client) return;
     const updated = { ...client, status: client.status === "active" ? "done" : "active" };
-    if (IS_WEB) {
-      setClients((p) => p.map((c) => (c.id === cid ? updated : c)));
-      return;
-    }
     try {
       await upsertClient(updated);
-      await refetchClient(cid);
+      bumpClients();
     } catch (_) {}
   };
 
   const deleteWorker = async (id) => {
-    if (IS_WEB) {
-      setWorkers((p) => p.filter((w) => w.id !== id));
-      if (selectedWorker === id) setSelectedWorker(null);
-      return;
-    }
     try {
       await dbDeleteWorker(id);
-      await refetchWorkers();
+      bumpWorkers();
     } catch (_) {}
     if (selectedWorker === id) setSelectedWorker(null);
   };
 
   const deleteSupplier = async (id) => {
-    if (IS_WEB) {
-      setSuppliers((p) => p.filter((s) => s.id !== id));
-      if (selectedSupplier === id) setSelectedSupplier(null);
-      return;
-    }
     try {
       await dbDeleteSupplier(id);
-      await refetchSuppliers();
+      bumpSuppliers();
     } catch (_) {}
     if (selectedSupplier === id) setSelectedSupplier(null);
   };
@@ -365,12 +281,9 @@ export function AppProvider({ children }) {
     setActiveFY(fy);
     setShowFYPicker(false);
     setSelectedClient(null);
-    if (!IS_WEB) {
-      try {
-        await dbSetSettings({ activeFY: fy, customFYs, nissabPrice });
-        await refetchSettings();
-      } catch (_) {}
-    }
+    try {
+      await dbSetSettings({ activeFY: fy, customFYs, nissabPrice });
+    } catch (_) {}
   };
 
   const persistSettings = async (partial) => {
@@ -379,26 +292,19 @@ export function AppProvider({ children }) {
       customFYs: partial.customFYs !== undefined ? partial.customFYs : customFYs,
       nissabPrice: partial.nissabPrice !== undefined ? partial.nissabPrice : nissabPrice,
     };
-    if (next.activeFY !== activeFY) setActiveFY(next.activeFY);
-    if (next.customFYs !== customFYs) setCustomFYs(next.customFYs);
-    if (next.nissabPrice !== nissabPrice) setNissabPrice(next.nissabPrice);
-    if (!IS_WEB) {
-      try {
-        await dbSetSettings(next);
-        await refetchSettings();
-      } catch (_) {}
-    }
+    setActiveFY(next.activeFY);
+    setCustomFYs(next.customFYs);
+    setNissabPrice(next.nissabPrice);
+    try {
+      await dbSetSettings(next);
+    } catch (_) {}
   };
 
   const value = {
-    clients,
-    setClients,
-    generalTxs,
-    setGeneralTxs,
-    workers,
-    setWorkers,
-    suppliers,
-    setSuppliers,
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
     activeFY,
     setActiveFY,
     customFYs,
@@ -426,6 +332,9 @@ export function AppProvider({ children }) {
     closeDrawer,
     drawerAnimation,
     loaded,
+    dataLoadingCount,
+    addDataLoading,
+    removeDataLoading,
     saveClient,
     saveClientTx,
     saveGeneral,
@@ -433,6 +342,7 @@ export function AppProvider({ children }) {
     saveSupplier,
     deleteClientTx,
     deleteClient,
+    deleteGeneralTx,
     toggleStatus,
     deleteWorker,
     deleteSupplier,

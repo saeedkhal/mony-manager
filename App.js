@@ -5,11 +5,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppProvider, useApp } from "./context/AppContext";
 import { useAppData } from "./hooks/useAppData";
+import { useScreenData } from "./hooks/useScreenData";
 import Header from "./components/Header";
 import HeaderActions from "./components/HeaderActions";
 import Drawer from "./components/Drawer";
 import MainContent from "./screens/MainContent";
 import Modals from "./components/Modals";
+import GlobalSpinner from "./components/GlobalSpinner";
 import { NAV_ITEMS } from "./constants";
 import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
 import styles from "./styles/AppStyles";
@@ -34,12 +36,20 @@ function AppContent() {
     showFYPicker,
     setShowFYPicker,
     handleFYChange,
-    clients,
-    generalTxs,
-    workers,
-    suppliers,
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
     customFYs,
+    dataLoadingCount,
   } = useApp();
+  const { clients, generalTxs, workers, suppliers } = useScreenData(
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded
+  );
   const { allFYs } = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
 
   const systemBarColor = "#f0f0f0";
@@ -98,6 +108,7 @@ function AppContent() {
         safeAreaBottom={insets.bottom}
       />
       <Modals />
+      <GlobalSpinner visible={dataLoadingCount > 0} tip="جاري التحميل..." />
     </View>
   );
 }

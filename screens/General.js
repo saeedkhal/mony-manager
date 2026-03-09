@@ -2,12 +2,29 @@ import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
+import { useScreenData } from "../hooks/useScreenData";
 import { CURRENCY, GENERAL_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function General() {
-  const { clients, generalTxs, workers, suppliers, activeFY, customFYs, setGeneralTxs } = useApp();
+  const {
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded,
+    activeFY,
+    customFYs,
+    deleteGeneralTx,
+  } = useApp();
+  const { clients, generalTxs, workers, suppliers } = useScreenData(
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded
+  );
   const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { fyGeneralTxs } = appData;
 
@@ -65,7 +82,7 @@ export default function General() {
               </Text>
               <TouchableOpacity
                 style={styles.txDeleteBtn}
-                onPress={() => setGeneralTxs((p) => p.filter((x) => x.id !== t.id))}
+                onPress={() => deleteGeneralTx(t.id)}
               >
                 <Text style={styles.txDeleteBtnText}>حذف</Text>
               </TouchableOpacity>

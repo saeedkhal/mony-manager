@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, TextInput } from "react-native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
+import { useScreenData } from "../hooks/useScreenData";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -9,8 +10,25 @@ import styles from "../styles/AppStyles";
 const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
-  const { clients, generalTxs, workers, suppliers, activeFY, customFYs, nissabPrice, setNissabPrice, persistSettings } =
-    useApp();
+  const {
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded,
+    activeFY,
+    customFYs,
+    nissabPrice,
+    setNissabPrice,
+    persistSettings,
+  } = useApp();
+  const { clients, generalTxs, workers, suppliers } = useScreenData(
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded
+  );
   const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = appData;
 

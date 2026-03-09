@@ -2,16 +2,18 @@ import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
+import { useScreenData } from "../hooks/useScreenData";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function WorkerDetail() {
   const {
-    clients,
-    generalTxs,
-    workers,
-    suppliers,
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded,
     activeFY,
     customFYs,
     selectedWorker,
@@ -20,6 +22,13 @@ export default function WorkerDetail() {
     setModal,
     deleteClientTx,
   } = useApp();
+  const { clients, generalTxs, workers, suppliers } = useScreenData(
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded
+  );
   const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { workerStats } = appData;
   const activeWorker = workerStats.find((w) => w.id === selectedWorker);

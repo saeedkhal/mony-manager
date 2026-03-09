@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
+import { useScreenData } from "../hooks/useScreenData";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -9,10 +10,11 @@ import SupplierDetail from "./SupplierDetail";
 
 export default function Suppliers() {
   const {
-    clients,
-    generalTxs,
-    workers,
-    suppliers,
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded,
     activeFY,
     customFYs,
     selectedSupplier,
@@ -21,6 +23,13 @@ export default function Suppliers() {
     setModal,
     deleteSupplier,
   } = useApp();
+  const { clients, generalTxs, workers, suppliers } = useScreenData(
+    clientsVersion,
+    generalTxsVersion,
+    workersVersion,
+    suppliersVersion,
+    loaded
+  );
   const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
   const { supplierStats } = appData;
 
