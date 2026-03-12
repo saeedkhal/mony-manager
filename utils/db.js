@@ -41,9 +41,41 @@ async function getDb() {
   if (IS_WEB) return null;
   if (db) return db;
   const SQLite = require("expo-sqlite");
-  db = await SQLite.openDatabaseAsync(DB_NAME);
-  await initSchema(db);
-  return db;
+  try {
+    db = await SQLite.openDatabaseAsync(DB_NAME);
+    await initSchema(db);
+    return db;
+  } catch (e) {
+    db = null;
+    throw e;
+  }
+}
+
+function isNativeDbInvalidError(e) {
+  const msg = e?.message ?? "";
+  return (
+    msg.includes("Native module is null") ||
+    msg.includes("NullPointerException") ||
+    msg.includes("prepareAsync") ||
+    msg.includes("has been rejected")
+  );
+}
+
+/** Run a DB operation; on native-invalid error, clear cache and retry once. */
+async function withDbRetry(fn) {
+  let database = await getDb();
+  if (!database) return null;
+  try {
+    return await fn(database);
+  } catch (e) {
+    if (isNativeDbInvalidError(e)) {
+      db = null;
+      database = await getDb();
+      if (!database) throw e;
+      return await fn(database);
+    }
+    throw e;
+  }
 }
 
 async function initSchema(database) {
@@ -423,8 +455,33 @@ export async function saveState(data) {
 export async function upsertClient(client) {
   if (client == null || client.id == null) return;
   try {
-    const database = await getDb();
-    if (!database) {
+    const ran = await withDbRetry(async (database) => {
+      await database.runAsync(
+        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        client.id,
+        client.name || "",
+        client.project || "",
+        client.status || "active",
+        client.note || "",
+        client.createdAt || ""
+      );
+      await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", client.id);
+      for (const t of client.txs || []) {
+        await database.runAsync(
+          "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          t.id,
+          client.id,
+          t.type || "income",
+          t.amount,
+          t.cat || "",
+          t.note || "",
+          t.date || "",
+          t.workerId ?? null,
+          t.supplierId ?? null
+        );
+      }
+    });
+    if (ran === null) {
       const state = await getWebState();
       if (!state) return;
       const idx = state.clients.findIndex((c) => String(c.id) === String(client.id));
@@ -433,32 +490,6 @@ export async function upsertClient(client) {
       if (idx >= 0) clients[idx] = next;
       else clients.push(next);
       await setWebState({ ...state, clients });
-      return;
-    }
-
-    await database.runAsync(
-      "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      client.id,
-      client.name || "",
-      client.project || "",
-      client.status || "active",
-      client.note || "",
-      client.createdAt || ""
-    );
-    await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", client.id);
-    for (const t of client.txs || []) {
-      await database.runAsync(
-        "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        t.id,
-        client.id,
-        t.type || "income",
-        t.amount,
-        t.cat || "",
-        t.note || "",
-        t.date || "",
-        t.workerId ?? null,
-        t.supplierId ?? null
-      );
     }
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
