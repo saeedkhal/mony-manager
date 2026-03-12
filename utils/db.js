@@ -48,6 +48,12 @@ async function getDb() {
 
 async function initSchema(database) {
   await database.execAsync(`
+    DROP TABLE IF EXISTS client_transactions;
+    DROP TABLE IF EXISTS clients;
+    DROP TABLE IF EXISTS general;
+    DROP TABLE IF EXISTS workers;
+    DROP TABLE IF EXISTS suppliers;
+    DROP TABLE IF EXISTS settings;
     CREATE TABLE IF NOT EXISTS clients (
       id INTEGER PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -56,7 +62,7 @@ async function initSchema(database) {
       note TEXT,
       created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS client_txs (
+    CREATE TABLE IF NOT EXISTS client_transactions (
       id INTEGER PRIMARY KEY NOT NULL,
       client_id INTEGER NOT NULL,
       type TEXT,
@@ -68,7 +74,7 @@ async function initSchema(database) {
       supplier_id INTEGER,
       FOREIGN KEY (client_id) REFERENCES clients(id)
     );
-    CREATE TABLE IF NOT EXISTS general_txs (
+    CREATE TABLE IF NOT EXISTS general (
       id INTEGER PRIMARY KEY NOT NULL,
       amount REAL NOT NULL,
       cat TEXT,
@@ -129,9 +135,9 @@ export async function getFullState() {
       "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
     );
     const txRows = await database.getAllAsync(
-      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_txs ORDER BY client_id, id"
+      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
     );
-    const generalRows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general_txs ORDER BY id");
+    const generalRows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general ORDER BY id");
     const workersRows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
     const suppliersRows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
     const settingsRows = await database.getAllAsync("SELECT key, value FROM settings");
@@ -199,7 +205,7 @@ export async function getClients() {
       "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
     );
     const txRows = await database.getAllAsync(
-      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_txs ORDER BY client_id, id"
+      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
     );
     return clientsRows.map((c) => rowToClient(c, txRows));
   } catch (e) {
@@ -225,7 +231,7 @@ export async function getClientWithTxs(clientId) {
     );
     if (clientRows.length === 0) return null;
     const txRows = await database.getAllAsync(
-      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_txs WHERE client_id = ? ORDER BY id",
+      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions WHERE client_id = ? ORDER BY id",
       clientId
     );
     return rowToClient(clientRows[0], txRows);
@@ -244,7 +250,7 @@ export async function getGeneralTxs() {
       return state ? state.generalTxs : [];
     }
 
-    const rows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general_txs ORDER BY id");
+    const rows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general ORDER BY id");
     return rows.map((r) => ({
       id: r.id,
       amount: r.amount,
@@ -359,10 +365,10 @@ export async function saveState(data) {
         c.note || "",
         c.createdAt || ""
       );
-      await database.runAsync("DELETE FROM client_txs WHERE client_id = ?", c.id);
+      await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", c.id);
       for (const t of c.txs || []) {
         await database.runAsync(
-          "INSERT INTO client_txs (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           t.id,
           c.id,
           t.type || "income",
@@ -377,7 +383,7 @@ export async function saveState(data) {
     }
     for (const t of data.generalTxs || []) {
       await database.runAsync(
-        "INSERT OR REPLACE INTO general_txs (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO general (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
         t.id,
         t.amount,
         t.cat || "",
@@ -439,10 +445,10 @@ export async function upsertClient(client) {
       client.note || "",
       client.createdAt || ""
     );
-    await database.runAsync("DELETE FROM client_txs WHERE client_id = ?", client.id);
+    await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", client.id);
     for (const t of client.txs || []) {
       await database.runAsync(
-        "INSERT INTO client_txs (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         t.id,
         client.id,
         t.type || "income",
@@ -473,7 +479,7 @@ export async function deleteClient(id) {
       return;
     }
 
-    await database.runAsync("DELETE FROM client_txs WHERE client_id = ?", id);
+    await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", id);
     await database.runAsync("DELETE FROM clients WHERE id = ?", id);
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
@@ -503,7 +509,7 @@ export async function upsertClientTx(clientId, tx) {
     }
 
     await database.runAsync(
-      "INSERT OR REPLACE INTO client_txs (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       tx.id,
       clientId,
       tx.type || "income",
@@ -537,7 +543,7 @@ export async function deleteClientTx(clientId, txId) {
       return;
     }
 
-    await database.runAsync("DELETE FROM client_txs WHERE client_id = ? AND id = ?", clientId, txId);
+    await database.runAsync("DELETE FROM client_transactions WHERE client_id = ? AND id = ?", clientId, txId);
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteClientTx error:", e.message);
@@ -562,7 +568,7 @@ export async function upsertGeneralTx(tx) {
     }
 
     await database.runAsync(
-      "INSERT OR REPLACE INTO general_txs (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO general (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
       tx.id,
       tx.amount,
       tx.cat || "",
@@ -588,7 +594,7 @@ export async function deleteGeneralTx(id) {
       return;
     }
 
-    await database.runAsync("DELETE FROM general_txs WHERE id = ?", id);
+    await database.runAsync("DELETE FROM general WHERE id = ?", id);
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteGeneralTx error:", e.message);

@@ -15,6 +15,7 @@ import GlobalSpinner from "./components/GlobalSpinner";
 import { NAV_ITEMS } from "./constants";
 import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
 import styles from "./styles/AppStyles";
+import DrizzleStudio from "./components/DrizzleStudio";
 
 I18nManager.forceRTL(true);
 I18nManager.allowRTL(true);
@@ -116,6 +117,7 @@ function AppContent() {
 export default function App() {
   return (
     <AppProvider>
+      <DrizzleStudio />
       <AppContent />
     </AppProvider>
   );
