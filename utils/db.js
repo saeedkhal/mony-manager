@@ -4,7 +4,6 @@ import { getCurrentFiscalYear } from "../utils/helpers";
 const IS_WEB = Platform.OS === "web";
 const DB_NAME = "mall_v4.db";
 const WEB_STORAGE_KEY = "mall_v4";
-let db = null;
 
 // Web: read full state from AsyncStorage (same shape as getFullState)
 async function getWebState() {
@@ -38,17 +37,51 @@ async function setWebState(data) {
   }
 }
 
-async function getDb() {
-  if (IS_WEB) return null;
-  if (db) return db;
+let dbQueue = Promise.resolve();
+let rawDb = null;
+
+/** Open DB once (with retries). Called only from runDb. */
+async function openDb() {
+  if (rawDb) return rawDb;
   const SQLite = require("expo-sqlite");
-  try {
-    db = await SQLite.openDatabaseAsync(DB_NAME);
-    await initSchema(db);
-    return db;
-  } catch (e) {
-    db = null;
-    throw e;
+  const connection = await SQLite.openDatabaseAsync(DB_NAME);
+  await connection.execAsync("PRAGMA busy_timeout = 30000; PRAGMA journal_mode = WAL;");
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await initSchema(connection);
+      break;
+    } catch (e) {
+      const isLocked =
+        e?.message?.includes("database is locked") ||
+        (e?.message?.includes("has been rejected") && e?.message?.includes("execAsync"));
+      if (isLocked && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      } else {
+        throw e;
+      }
+    }
+  }
+  rawDb = connection;
+  return rawDb;
+}
+
+/**
+ * Run a single DB job. Only one job runs at a time — no interleaving.
+ * Use this for all native DB access. Pass a callback that receives the raw database.
+ */
+async function runDb(fn) {
+  const work = dbQueue.then(async () => {
+    const database = await openDb();
+    return await fn(database);
+  });
+  dbQueue = work.catch(() => {});
+  return work;
+}
+
+/** Clear DB handle on lock/invalid so next runDb reopens. */
+function clearDbOnError(e) {
+  if (isNativeDbInvalidError(e)) {
+    rawDb = null;
   }
 }
 
@@ -58,26 +91,12 @@ function isNativeDbInvalidError(e) {
     msg.includes("Native module is null") ||
     msg.includes("NullPointerException") ||
     msg.includes("prepareAsync") ||
-    msg.includes("has been rejected")
+    msg.includes("finalizeAsync") ||
+    msg.includes("has been rejected") ||
+    msg.includes("database is locked")
   );
 }
 
-/** Run a DB operation; on native-invalid error, clear cache and retry once. */
-async function withDbRetry(fn) {
-  let database = await getDb();
-  if (!database) return null;
-  try {
-    return await fn(database);
-  } catch (e) {
-    if (isNativeDbInvalidError(e)) {
-      db = null;
-      database = await getDb();
-      if (!database) throw e;
-      return await fn(database);
-    }
-    throw e;
-  }
-}
 
 async function initSchema(database) {
   await database.execAsync(`
@@ -167,104 +186,109 @@ async function initSchema(database) {
 }
 
 /** Get the active fiscal year label from fiscal_years table. On web uses AsyncStorage activeFY. If none set, returns current FY and ensures a row exists. */
+async function getActiveFiscalYearWithDb(database) {
+  const rows = await database.getAllAsync("SELECT label FROM fiscal_years WHERE is_active = 1 LIMIT 1");
+  if (rows.length > 0) return rows[0].label;
+  const current = getCurrentFiscalYear();
+  await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", current);
+  await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", current);
+  return current;
+}
+
+async function getFiscalYearsWithDb(database) {
+  const current = getCurrentFiscalYear();
+  await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", current);
+  const rows = await database.getAllAsync("SELECT label FROM fiscal_years ORDER BY label DESC");
+  return rows.map((r) => r.label);
+}
+
+async function getActiveFiscalYearIdWithDb(database) {
+  const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
+  return row?.id ?? null;
+}
+
+async function getFiscalYearIdByLabelWithDb(database, label) {
+  if (label == null || label === "") return null;
+  const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE label = ? LIMIT 1", label);
+  return row?.id ?? null;
+}
+
 export async function getActiveFiscalYear() {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       return (state && state.activeFY) ? state.activeFY : getCurrentFiscalYear();
     }
-    const rows = await database.getAllAsync("SELECT label FROM fiscal_years WHERE is_active = 1 LIMIT 1");
-    if (rows.length > 0) return rows[0].label;
-    const current = getCurrentFiscalYear();
-    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", current);
-    await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", current);
-    return current;
+    return await runDb(getActiveFiscalYearWithDb);
   } catch (e) {
     console.warn("DB getActiveFiscalYear error:", e?.message || e);
     return getCurrentFiscalYear();
   }
 }
 
-/** Get all fiscal year labels from fiscal_years table, sorted descending. Ensures current year exists. On web returns [activeFY]. */
 export async function getFiscalYears() {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
-      const fy = (state && state.activeFY) ? state.activeFY : getCurrentFiscalYear();
-      return [fy];
+      return [(state && state.activeFY) ? state.activeFY : getCurrentFiscalYear()];
     }
-    const current = getCurrentFiscalYear();
-    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", current);
-    const rows = await database.getAllAsync("SELECT label FROM fiscal_years ORDER BY label DESC");
-    return rows.map((r) => r.label);
+    return await runDb(getFiscalYearsWithDb);
   } catch (e) {
     console.warn("DB getFiscalYears error:", e?.message || e);
     return [getCurrentFiscalYear()];
   }
 }
 
-/** Set the active fiscal year in fiscal_years table. On web updates AsyncStorage. */
 export async function setActiveFiscalYear(label) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (state) await setWebState({ ...state, activeFY: label });
       return;
     }
-    await database.runAsync("UPDATE fiscal_years SET is_active = 0");
-    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", label);
-    await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", label);
+    await runDb(async (database) => {
+      await database.runAsync("UPDATE fiscal_years SET is_active = 0");
+      await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", label);
+      await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", label);
+    });
   } catch (e) {
     console.warn("DB setActiveFiscalYear error:", e?.message || e);
   }
 }
 
-/** Add a fiscal year label to fiscal_years table (is_active = 0). On web no-op. */
 export async function addFiscalYearLabel(label) {
   try {
-    const database = await getDb();
-    if (!database) return;
-    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", label);
+    if (IS_WEB) return;
+    await runDb((database) => database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", label));
   } catch (e) {
     console.warn("DB addFiscalYearLabel error:", e?.message || e);
   }
 }
 
-/** Remove a fiscal year label from fiscal_years table. Only removes if not active. On web no-op. */
 export async function removeFiscalYearLabel(label) {
   try {
-    const database = await getDb();
-    if (!database) return;
-    await database.runAsync("DELETE FROM fiscal_years WHERE label = ? AND is_active = 0", label);
+    if (IS_WEB) return;
+    await runDb((database) => database.runAsync("DELETE FROM fiscal_years WHERE label = ? AND is_active = 0", label));
   } catch (e) {
     console.warn("DB removeFiscalYearLabel error:", e?.message || e);
   }
 }
 
-/** Get the active fiscal year id from fiscal_years table. On web returns null. */
 export async function getActiveFiscalYearId() {
   try {
-    const database = await getDb();
-    if (!database) return null;
-    const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
-    return row?.id ?? null;
+    if (IS_WEB) return null;
+    return await runDb(getActiveFiscalYearIdWithDb);
   } catch (e) {
     console.warn("DB getActiveFiscalYearId error:", e?.message || e);
     return null;
   }
 }
 
-/** Get fiscal year id by label. Returns null if not found. */
 export async function getFiscalYearIdByLabel(label) {
   if (label == null || label === "") return null;
   try {
-    const database = await getDb();
-    if (!database) return null;
-    const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE label = ? LIMIT 1", label);
-    return row?.id ?? null;
+    if (IS_WEB) return null;
+    return await runDb((db) => getFiscalYearIdByLabelWithDb(db, label));
   } catch (e) {
     console.warn("DB getFiscalYearIdByLabel error:", e?.message || e);
     return null;
@@ -301,67 +325,68 @@ function rowToClient(c, txRows) {
  */
 export async function getFullState() {
   try {
-    const database = await getDb();
-    if (!database) return getWebState();
+    if (IS_WEB) return getWebState();
+    return await runDb(async (database) => {
+      const clientsRows = await database.getAllAsync(
+        "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id"
+      );
+      const txRows = await database.getAllAsync(
+        "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
+      );
+      const generalRows = await database.getAllAsync("SELECT id, amount, cat, note, date, fiscal_year_id FROM general ORDER BY id");
+      const workersRows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
+      const suppliersRows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
+      const settingsRows = await database.getAllAsync("SELECT key, value FROM settings");
 
-    const clientsRows = await database.getAllAsync(
-      "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id"
-    );
-    const txRows = await database.getAllAsync(
-      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
-    );
-    const generalRows = await database.getAllAsync("SELECT id, amount, cat, note, date, fiscal_year_id FROM general ORDER BY id");
-    const workersRows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
-    const suppliersRows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
-    const settingsRows = await database.getAllAsync("SELECT key, value FROM settings");
+      const settings = {};
+      for (const row of settingsRows) {
+        settings[row.key] = row.value;
+      }
 
-    const settings = {};
-    for (const row of settingsRows) {
-      settings[row.key] = row.value;
-    }
+      const hasData =
+        clientsRows.length > 0 ||
+        generalRows.length > 0 ||
+        workersRows.length > 0 ||
+        suppliersRows.length > 0 ||
+        settingsRows.length > 0;
+      if (!hasData) return null;
 
-    const hasData =
-      clientsRows.length > 0 ||
-      generalRows.length > 0 ||
-      workersRows.length > 0 ||
-      suppliersRows.length > 0 ||
-      settingsRows.length > 0;
-    if (!hasData) return null;
+      const [activeFY, customFYs] = await Promise.all([getActiveFiscalYearWithDb(database), getFiscalYearsWithDb(database)]);
+      const clients = clientsRows.map((c) => rowToClient(c, txRows));
+      const generalTxs = generalRows.map((r) => ({
+        id: r.id,
+        amount: r.amount,
+        cat: r.cat,
+        note: r.note || "",
+        date: r.date,
+        fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : null,
+      }));
+      const workers = workersRows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone || "",
+      }));
+      const suppliers = suppliersRows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone || "",
+        category: r.category || "",
+      }));
+      const nissabPrice = settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000;
 
-    const [activeFY, customFYs] = await Promise.all([getActiveFiscalYear(), getFiscalYears()]);
-    const clients = clientsRows.map((c) => rowToClient(c, txRows));
-    const generalTxs = generalRows.map((r) => ({
-      id: r.id,
-      amount: r.amount,
-      cat: r.cat,
-      note: r.note || "",
-      date: r.date,
-      fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : null,
-    }));
-    const workers = workersRows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      phone: r.phone || "",
-    }));
-    const suppliers = suppliersRows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      phone: r.phone || "",
-      category: r.category || "",
-    }));
-    const nissabPrice = settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000;
-
-    return {
-      clients,
-      generalTxs,
-      workers,
-      suppliers,
-      activeFY: activeFY || null,
-      customFYs: Array.isArray(customFYs) ? customFYs : [],
-      nissabPrice,
-    };
+      return {
+        clients,
+        generalTxs,
+        workers,
+        suppliers,
+        activeFY: activeFY || null,
+        customFYs: Array.isArray(customFYs) ? customFYs : [],
+        nissabPrice,
+      };
+    });
   } catch (e) {
     console.warn("DB getFullState error:", e?.message || e);
+    clearDbOnError(e);
     return null;
   }
 }
@@ -371,8 +396,7 @@ export async function getFullState() {
 /** Get all clients with their txs. If activeFY (label) is passed, only clients for that fiscal year are returned. Returns [] on error. On web reads from AsyncStorage. */
 export async function getClients(activeFY = null) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       let list = state ? state.clients : [];
       if (activeFY != null && activeFY !== "") {
@@ -381,26 +405,28 @@ export async function getClients(activeFY = null) {
       }
       return list;
     }
-
-    let sql = "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients";
-    const params = [];
-    if (activeFY != null && activeFY !== "") {
-      const fyId = await getFiscalYearIdByLabel(activeFY);
-      if (fyId != null) {
-        sql += " WHERE fiscal_year_id = ?";
-        params.push(fyId);
+    return await runDb(async (database) => {
+      let sql = "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients";
+      const params = [];
+      if (activeFY != null && activeFY !== "") {
+        const fyId = await getFiscalYearIdByLabelWithDb(database, activeFY);
+        if (fyId != null) {
+          sql += " WHERE fiscal_year_id = ?";
+          params.push(fyId);
+        }
       }
-    }
-    sql += " ORDER BY id";
-    const clientsRows = params.length
-      ? await database.getAllAsync(sql, ...params)
-      : await database.getAllAsync(sql);
-    const txRows = await database.getAllAsync(
-      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
-    );
-    return clientsRows.map((c) => rowToClient(c, txRows));
+      sql += " ORDER BY id";
+      const clientsRows = params.length
+        ? await database.getAllAsync(sql, ...params)
+        : await database.getAllAsync(sql);
+      const txRows = await database.getAllAsync(
+        "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
+      );
+      return clientsRows.map((c) => rowToClient(c, txRows));
+    });
   } catch (e) {
     console.warn("DB getClients error:", e?.message || e);
+    clearDbOnError(e);
     return [];
   }
 }
@@ -408,26 +434,27 @@ export async function getClients(activeFY = null) {
 /** Get one client with txs by id. Returns null if not found or error. On web reads from AsyncStorage. */
 export async function getClientWithTxs(clientId) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return null;
       const c = state.clients.find((x) => String(x.id) === String(clientId));
       return c || null;
     }
-
-    const clientRows = await database.getAllAsync(
-      "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE id = ?",
-      clientId
-    );
-    if (clientRows.length === 0) return null;
-    const txRows = await database.getAllAsync(
-      "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions WHERE client_id = ? ORDER BY id",
-      clientId
-    );
-    return rowToClient(clientRows[0], txRows);
+    return await runDb(async (database) => {
+      const clientRows = await database.getAllAsync(
+        "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE id = ?",
+        clientId
+      );
+      if (clientRows.length === 0) return null;
+      const txRows = await database.getAllAsync(
+        "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions WHERE client_id = ? ORDER BY id",
+        clientId
+      );
+      return rowToClient(clientRows[0], txRows);
+    });
   } catch (e) {
     console.warn("DB getClientWithTxs error:", e?.message || e);
+    clearDbOnError(e);
     return null;
   }
 }
@@ -435,8 +462,7 @@ export async function getClientWithTxs(clientId) {
 /** Get all general txs. If activeFY (label) is passed, only txs for that fiscal year are returned. Returns [] on error. On web reads from AsyncStorage. */
 export async function getGeneralTxs(activeFY = null) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       let list = state ? state.generalTxs : [];
       if (activeFY != null && activeFY !== "") {
@@ -445,30 +471,32 @@ export async function getGeneralTxs(activeFY = null) {
       }
       return list;
     }
-
-    let sql = "SELECT id, amount, cat, note, date, fiscal_year_id FROM general";
-    const params = [];
-    if (activeFY != null && activeFY !== "") {
-      const fyId = await getFiscalYearIdByLabel(activeFY);
-      if (fyId != null) {
-        sql += " WHERE fiscal_year_id = ?";
-        params.push(fyId);
+    return await runDb(async (database) => {
+      let sql = "SELECT id, amount, cat, note, date, fiscal_year_id FROM general";
+      const params = [];
+      if (activeFY != null && activeFY !== "") {
+        const fyId = await getFiscalYearIdByLabelWithDb(database, activeFY);
+        if (fyId != null) {
+          sql += " WHERE fiscal_year_id = ?";
+          params.push(fyId);
+        }
       }
-    }
-    sql += " ORDER BY id";
-    const rows = params.length
-      ? await database.getAllAsync(sql, ...params)
-      : await database.getAllAsync(sql);
-    return rows.map((r) => ({
-      id: r.id,
-      amount: r.amount,
-      cat: r.cat,
-      note: r.note || "",
-      date: r.date,
-      fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : null,
-    }));
+      sql += " ORDER BY id";
+      const rows = params.length
+        ? await database.getAllAsync(sql, ...params)
+        : await database.getAllAsync(sql);
+      return rows.map((r) => ({
+        id: r.id,
+        amount: r.amount,
+        cat: r.cat,
+        note: r.note || "",
+        date: r.date,
+        fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : null,
+      }));
+    });
   } catch (e) {
     console.warn("DB getGeneralTxs error:", e?.message || e);
+    clearDbOnError(e);
     return [];
   }
 }
@@ -476,16 +504,17 @@ export async function getGeneralTxs(activeFY = null) {
 /** Get all workers. Returns [] on error. On web reads from AsyncStorage. */
 export async function getWorkers() {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       return state ? state.workers : [];
     }
-
-    const rows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
-    return rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone || "" }));
+    return await runDb(async (database) => {
+      const rows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
+      return rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone || "" }));
+    });
   } catch (e) {
     console.warn("DB getWorkers error:", e?.message || e);
+    clearDbOnError(e);
     return [];
   }
 }
@@ -493,21 +522,22 @@ export async function getWorkers() {
 /** Get all suppliers. Returns [] on error. On web reads from AsyncStorage. */
 export async function getSuppliers() {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       return state ? state.suppliers : [];
     }
-
-    const rows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      phone: r.phone || "",
-      category: r.category || "",
-    }));
+    return await runDb(async (database) => {
+      const rows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone || "",
+        category: r.category || "",
+      }));
+    });
   } catch (e) {
     console.warn("DB getSuppliers error:", e?.message || e);
+    clearDbOnError(e);
     return [];
   }
 }
@@ -515,24 +545,22 @@ export async function getSuppliers() {
 /** Get settings only (nissabPrice). Fiscal years come from fiscal_years table. On web reads nissabPrice from AsyncStorage. */
 export async function getSettings() {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
-      return state
-        ? { nissabPrice: state.nissabPrice ?? 85000 }
-        : { nissabPrice: 85000 };
+      return state ? { nissabPrice: state.nissabPrice ?? 85000 } : { nissabPrice: 85000 };
     }
-
-    const rows = await database.getAllAsync("SELECT key, value FROM settings");
-    const settings = {};
-    for (const row of rows) {
-      settings[row.key] = row.value;
-    }
-    if ("activeFY" in settings || "customFYs" in settings) {
-      await database.runAsync("DELETE FROM settings WHERE key IN ('activeFY', 'customFYs')");
-    }
-    const nissabPrice = settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000;
-    return { nissabPrice };
+    return await runDb(async (database) => {
+      const rows = await database.getAllAsync("SELECT key, value FROM settings");
+      const settings = {};
+      for (const row of rows) {
+        settings[row.key] = row.value;
+      }
+      if ("activeFY" in settings || "customFYs" in settings) {
+        await database.runAsync("DELETE FROM settings WHERE key IN ('activeFY', 'customFYs')");
+      }
+      const nissabPrice = settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000;
+      return { nissabPrice };
+    });
   } catch (e) {
     console.warn("DB getSettings error:", e?.message || e);
     return { nissabPrice: 85000 };
@@ -550,8 +578,7 @@ export async function loadState() {
  */
 export async function saveState(data) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       await setWebState({
         clients: data.clients || [],
         generalTxs: data.generalTxs || [],
@@ -563,75 +590,81 @@ export async function saveState(data) {
       });
       return;
     }
-
-    for (const c of data.clients || []) {
-      await database.runAsync(
-        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        c.id,
-        c.name || "",
-        c.project || "",
-        c.status || "active",
-        c.note || "",
-        c.createdAt || "",
-        c.fiscalYearId ?? null
-      );
-      await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", c.id);
-      for (const t of c.txs || []) {
+    await runDb(async (database) => {
+      for (const c of data.clients || []) {
         await database.runAsync(
-          "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          t.id,
+          "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
           c.id,
-          t.type || "income",
+          c.name || "",
+          c.project || "",
+          c.status || "active",
+          c.note || "",
+          c.createdAt || "",
+          c.fiscalYearId ?? null
+        );
+        await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", c.id);
+        for (const t of c.txs || []) {
+          await database.runAsync(
+            "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            t.id,
+            c.id,
+            t.type || "income",
+            t.amount,
+            t.cat || "",
+            t.note || "",
+            t.date || "",
+            t.workerId ?? null,
+            t.supplierId ?? null
+          );
+        }
+      }
+      for (const t of data.generalTxs || []) {
+        await database.runAsync(
+          "INSERT OR REPLACE INTO general (id, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?)",
+          t.id,
           t.amount,
           t.cat || "",
           t.note || "",
           t.date || "",
-          t.workerId ?? null,
-          t.supplierId ?? null
+          t.fiscalYearId ?? null
         );
       }
-    }
-    for (const t of data.generalTxs || []) {
+      for (const w of data.workers || []) {
+        await database.runAsync(
+          "INSERT OR REPLACE INTO workers (id, name, phone) VALUES (?, ?, ?)",
+          w.id,
+          w.name || "",
+          w.phone || ""
+        );
+      }
+      for (const s of data.suppliers || []) {
+        await database.runAsync(
+          "INSERT OR REPLACE INTO suppliers (id, name, phone, category) VALUES (?, ?, ?, ?)",
+          s.id,
+          s.name || "",
+          s.phone || "",
+          s.category || ""
+        );
+      }
+      if (data.activeFY != null) {
+        await database.runAsync("UPDATE fiscal_years SET is_active = 0");
+        await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", data.activeFY);
+        await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", data.activeFY);
+      }
+      for (const label of data.customFYs || []) {
+        await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", label);
+      }
       await database.runAsync(
-        "INSERT OR REPLACE INTO general (id, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?)",
-        t.id,
-        t.amount,
-        t.cat || "",
-        t.note || "",
-        t.date || "",
-        t.fiscalYearId ?? null
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        "nissabPrice",
+        data.nissabPrice != null ? String(data.nissabPrice) : "85000"
       );
-    }
-    for (const w of data.workers || []) {
-      await database.runAsync(
-        "INSERT OR REPLACE INTO workers (id, name, phone) VALUES (?, ?, ?)",
-        w.id,
-        w.name || "",
-        w.phone || ""
-      );
-    }
-    for (const s of data.suppliers || []) {
-      await database.runAsync(
-        "INSERT OR REPLACE INTO suppliers (id, name, phone, category) VALUES (?, ?, ?, ?)",
-        s.id,
-        s.name || "",
-        s.phone || "",
-        s.category || ""
-      );
-    }
-    if (data.activeFY != null) await setActiveFiscalYear(data.activeFY);
-    for (const label of data.customFYs || []) {
-      await addFiscalYearLabel(label);
-    }
-    await database.runAsync(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-      "nissabPrice",
-      data.nissabPrice != null ? String(data.nissabPrice) : "85000"
-    );
+    });
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB saveState error:", e.message);
     }
+    clearDbOnError(e);
   }
 }
 
@@ -640,7 +673,18 @@ export async function saveState(data) {
 export async function upsertClient(client) {
   if (client == null || client.id == null) return;
   try {
-    const ran = await withDbRetry(async (database) => {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return;
+      const idx = state.clients.findIndex((c) => String(c.id) === String(client.id));
+      const next = { ...client, txs: client.txs || [] };
+      const clients = [...state.clients];
+      if (idx >= 0) clients[idx] = next;
+      else clients.push(next);
+      await setWebState({ ...state, clients });
+      return;
+    }
+    await runDb(async (database) => {
       await database.runAsync(
         "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
         client.id,
@@ -667,49 +711,40 @@ export async function upsertClient(client) {
         );
       }
     });
-    if (ran === null) {
-      const state = await getWebState();
-      if (!state) return;
-      const idx = state.clients.findIndex((c) => String(c.id) === String(client.id));
-      const next = { ...client, txs: client.txs || [] };
-      const clients = [...state.clients];
-      if (idx >= 0) clients[idx] = next;
-      else clients.push(next);
-      await setWebState({ ...state, clients });
-    }
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB upsertClient error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function deleteClient(id) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const clients = state.clients.filter((c) => String(c.id) !== String(id));
       await setWebState({ ...state, clients });
       return;
     }
-
-    await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", id);
-    await database.runAsync("DELETE FROM clients WHERE id = ?", id);
+    await runDb(async (database) => {
+      await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", id);
+      await database.runAsync("DELETE FROM clients WHERE id = ?", id);
+    });
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteClient error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function upsertClientTx(clientId, tx) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const clients = state.clients.map((c) => {
@@ -734,31 +769,32 @@ export async function upsertClientTx(clientId, tx) {
       await setWebState({ ...state, clients });
       return;
     }
-
-    await database.runAsync(
-      "INSERT OR REPLACE INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      tx.id,
-      clientId,
-      tx.type || "income",
-      tx.amount,
-      tx.cat || "",
-      tx.note || "",
-      tx.date || "",
-      tx.workerId ?? null,
-      tx.supplierId ?? null
+    await runDb((database) =>
+      database.runAsync(
+        "INSERT OR REPLACE INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        tx.id,
+        clientId,
+        tx.type || "income",
+        tx.amount,
+        tx.cat || "",
+        tx.note || "",
+        tx.date || "",
+        tx.workerId ?? null,
+        tx.supplierId ?? null
+      )
     );
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB upsertClientTx error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function deleteClientTx(clientId, txId) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const clients = state.clients.map((c) => {
@@ -769,20 +805,21 @@ export async function deleteClientTx(clientId, txId) {
       await setWebState({ ...state, clients });
       return;
     }
-
-    await database.runAsync("DELETE FROM client_transactions WHERE client_id = ? AND id = ?", clientId, txId);
+    await runDb((database) =>
+      database.runAsync("DELETE FROM client_transactions WHERE client_id = ? AND id = ?", clientId, txId)
+    );
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteClientTx error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function upsertGeneralTx(tx) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const generalTxs = [...(state.generalTxs || [])];
@@ -800,48 +837,48 @@ export async function upsertGeneralTx(tx) {
       await setWebState({ ...state, generalTxs });
       return;
     }
-
-    await database.runAsync(
-      "INSERT OR REPLACE INTO general (id, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?)",
-      tx.id,
-      tx.amount,
-      tx.cat || "",
-      tx.note || "",
-      tx.date || "",
-      tx.fiscalYearId ?? null
+    await runDb((database) =>
+      database.runAsync(
+        "INSERT OR REPLACE INTO general (id, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?)",
+        tx.id,
+        tx.amount,
+        tx.cat || "",
+        tx.note || "",
+        tx.date || "",
+        tx.fiscalYearId ?? null
+      )
     );
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB upsertGeneralTx error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function deleteGeneralTx(id) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const generalTxs = (state.generalTxs || []).filter((t) => String(t.id) !== String(id));
       await setWebState({ ...state, generalTxs });
       return;
     }
-
-    await database.runAsync("DELETE FROM general WHERE id = ?", id);
+    await runDb((database) => database.runAsync("DELETE FROM general WHERE id = ?", id));
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteGeneralTx error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function upsertWorker(worker) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const workers = [...(state.workers || [])];
@@ -852,45 +889,45 @@ export async function upsertWorker(worker) {
       await setWebState({ ...state, workers });
       return;
     }
-
-    await database.runAsync(
-      "INSERT OR REPLACE INTO workers (id, name, phone) VALUES (?, ?, ?)",
-      worker.id,
-      worker.name,
-      worker.phone || ""
+    await runDb((database) =>
+      database.runAsync(
+        "INSERT OR REPLACE INTO workers (id, name, phone) VALUES (?, ?, ?)",
+        worker.id,
+        worker.name,
+        worker.phone || ""
+      )
     );
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB upsertWorker error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function deleteWorker(id) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const workers = (state.workers || []).filter((w) => String(w.id) !== String(id));
       await setWebState({ ...state, workers });
       return;
     }
-
-    await database.runAsync("DELETE FROM workers WHERE id = ?", id);
+    await runDb((database) => database.runAsync("DELETE FROM workers WHERE id = ?", id));
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteWorker error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function upsertSupplier(supplier) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const suppliers = [...(state.suppliers || [])];
@@ -906,38 +943,39 @@ export async function upsertSupplier(supplier) {
       await setWebState({ ...state, suppliers });
       return;
     }
-
-    await database.runAsync(
-      "INSERT OR REPLACE INTO suppliers (id, name, phone, category) VALUES (?, ?, ?, ?)",
-      supplier.id,
-      supplier.name,
-      supplier.phone || "",
-      supplier.category || ""
+    await runDb((database) =>
+      database.runAsync(
+        "INSERT OR REPLACE INTO suppliers (id, name, phone, category) VALUES (?, ?, ?, ?)",
+        supplier.id,
+        supplier.name,
+        supplier.phone || "",
+        supplier.category || ""
+      )
     );
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB upsertSupplier error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
 
 export async function deleteSupplier(id) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
       const suppliers = (state.suppliers || []).filter((s) => String(s.id) !== String(id));
       await setWebState({ ...state, suppliers });
       return;
     }
-
-    await database.runAsync("DELETE FROM suppliers WHERE id = ?", id);
+    await runDb((database) => database.runAsync("DELETE FROM suppliers WHERE id = ?", id));
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteSupplier error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }
@@ -945,8 +983,7 @@ export async function deleteSupplier(id) {
 /** Only nissabPrice is stored in settings table. Fiscal years use fiscal_years table. */
 export async function setSettings(settings) {
   try {
-    const database = await getDb();
-    if (!database) {
+    if (IS_WEB) {
       const state = await getWebState();
       const nissabPrice = settings.nissabPrice !== undefined ? settings.nissabPrice : (state && state.nissabPrice) ?? 85000;
       await setWebState({
@@ -960,18 +997,20 @@ export async function setSettings(settings) {
       });
       return;
     }
-
     if (settings.nissabPrice !== undefined) {
-      await database.runAsync(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        "nissabPrice",
-        String(settings.nissabPrice)
+      await runDb((database) =>
+        database.runAsync(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+          "nissabPrice",
+          String(settings.nissabPrice)
+        )
       );
     }
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB setSettings error:", e.message);
     }
+    clearDbOnError(e);
     throw e;
   }
 }

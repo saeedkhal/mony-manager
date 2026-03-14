@@ -3,6 +3,9 @@
   "license": "0BSD",
   "version": "1.0.0",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "npx expo start",
     "android": "npx expo start --android",
