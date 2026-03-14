@@ -11,7 +11,7 @@ const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
   const {
-    generalTxsVersion,
+    tab,
     loaded,
     activeFY,
     customFYs,
@@ -23,7 +23,7 @@ export default function Zakat() {
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || tab !== "zakat") return;
     let cancelled = false;
     Promise.all([getClients(), getGeneralTxs()])
       .then(([c, g]) => {
@@ -37,7 +37,7 @@ export default function Zakat() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, generalTxsVersion]);
+  }, [loaded, tab]);
 
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
     clients,

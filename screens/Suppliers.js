@@ -8,19 +8,11 @@ import styles from "../styles/AppStyles";
 import SupplierDetail from "./SupplierDetail";
 
 export default function Suppliers() {
-  const {
-    suppliersVersion,
-    loaded,
-    activeFY,
-    selectedSupplier,
-    setSelectedSupplier,
-    setForm,
-    setModal,
-    deleteSupplier,
-  } = useApp();
+  const { loaded, activeFY, setForm, setModal, deleteSupplier } = useApp();
   const [suppliers, setSuppliers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedSupplier, setSelectedSupplier] = useState(null);
 
   useEffect(() => {
     if (!loaded) return;
@@ -39,7 +31,7 @@ export default function Suppliers() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, suppliersVersion]);
+  }, [loaded]);
 
   const supplierStats = useMemo(() => {
     return (suppliers || [])
@@ -61,7 +53,14 @@ export default function Suppliers() {
       .sort((a, b) => b.total - a.total);
   }, [suppliers, clients, activeFY]);
 
-  if (selectedSupplier) return <SupplierDetail />;
+  if (selectedSupplier) {
+    return (
+      <SupplierDetail
+        selectedSupplier={selectedSupplier}
+        setSelectedSupplier={setSelectedSupplier}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -112,9 +111,10 @@ export default function Suppliers() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.iconBtn, styles.iconBtnDanger]}
-                    onPress={(e) => {
+                    onPress={async (e) => {
                       e.stopPropagation();
-                      deleteSupplier(s.id);
+                      await deleteSupplier(s.id);
+                      if (selectedSupplier === s.id) setSelectedSupplier(null);
                     }}
                   >
                     <Text style={styles.iconBtnText}>🗑️</Text>

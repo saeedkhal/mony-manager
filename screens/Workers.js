@@ -8,19 +8,11 @@ import styles from "../styles/AppStyles";
 import WorkerDetail from "./WorkerDetail";
 
 export default function Workers() {
-  const {
-    workersVersion,
-    loaded,
-    activeFY,
-    selectedWorker,
-    setSelectedWorker,
-    setForm,
-    setModal,
-    deleteWorker,
-  } = useApp();
+  const { loaded, activeFY, setForm, setModal, deleteWorker } = useApp();
   const [workers, setWorkers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedWorker, setSelectedWorker] = useState(null);
 
   useEffect(() => {
     if (!loaded) return;
@@ -39,7 +31,7 @@ export default function Workers() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, workersVersion]);
+  }, [loaded]);
 
   const workerStats = useMemo(() => {
     return (workers || [])
@@ -61,7 +53,7 @@ export default function Workers() {
       .sort((a, b) => b.total - a.total);
   }, [workers, clients, activeFY]);
 
-  if (selectedWorker) return <WorkerDetail />;
+  if (selectedWorker) return <WorkerDetail selectedWorker={selectedWorker} setSelectedWorker={setSelectedWorker} />;
 
   if (loading) {
     return (
@@ -104,9 +96,10 @@ export default function Workers() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.iconBtn, styles.iconBtnDanger]}
-                    onPress={(e) => {
+                    onPress={async (e) => {
                       e.stopPropagation();
-                      deleteWorker(w.id);
+                      await deleteWorker(w.id);
+                      if (selectedWorker === w.id) setSelectedWorker(null);
                     }}
                   >
                     <Text style={styles.iconBtnText}>🗑️</Text>

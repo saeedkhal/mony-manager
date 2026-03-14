@@ -23,19 +23,12 @@ const chartConfig = {
 };
 
 export default function Dashboard() {
-  const {
-    generalTxsVersion,
-    loaded,
-    activeFY,
-    customFYs,
-    setSelectedClient,
-    setTab,
-  } = useApp();
+  const { tab, loaded, activeFY, customFYs, setTab } = useApp();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || tab !== "dashboard") return;
     let cancelled = false;
     Promise.all([getClients(), getGeneralTxs()])
       .then(([c, g]) => {
@@ -49,7 +42,7 @@ export default function Dashboard() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, generalTxsVersion]);
+  }, [loaded, tab]);
 
   const appData = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
   const {
@@ -157,10 +150,7 @@ export default function Dashboard() {
                 <TouchableOpacity
                   key={c.id}
                   style={styles.clientSummaryItem}
-                  onPress={() => {
-                    setSelectedClient(c.id);
-                    setTab("clients");
-                  }}
+                  onPress={() => setTab("clients")}
                 >
                   <View style={styles.clientSummaryInfo}>
                     <Text style={styles.clientSummaryName}>{c.name}</Text>

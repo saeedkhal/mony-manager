@@ -8,9 +8,10 @@ import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
 
 export default function Clients() {
-  const { loaded, activeFY, selectedClient, setSelectedClient } = useApp();
+  const { loaded, activeFY } = useApp();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedClient, setSelectedClient] = useState(null);
 
   useEffect(() => {
     if (!loaded) return;
@@ -39,7 +40,15 @@ export default function Clients() {
     return { income, expense, profit: income - expense };
   };
 
-  if (selectedClient) return <ClientDetail />;
+  if (selectedClient) {
+    return (
+      <ClientDetail
+        selectedClient={selectedClient}
+        setSelectedClient={setSelectedClient}
+        onClientDeleted={() => setSelectedClient(null)}
+      />
+    );
+  }
 
   if (loading) {
     return (

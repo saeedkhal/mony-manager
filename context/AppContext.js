@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { Animated, Dimensions, Platform } from "react-native";
+import { Animated, Dimensions } from "react-native";
 import { initState } from "../utils/storage";
 import {
   getClientWithTxs,
@@ -24,27 +24,17 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [generalTxsVersion, setGeneralTxsVersion] = useState(0);
-  const [workersVersion, setWorkersVersion] = useState(0);
-  const [suppliersVersion, setSuppliersVersion] = useState(0);
   const [activeFY, setActiveFY] = useState(getCurrentFiscalYear());
   const [customFYs, setCustomFYs] = useState([]);
   const [nissabPrice, setNissabPrice] = useState(85000);
   const [tab, setTab] = useState("dashboard");
-  const [selectedClient, setSelectedClient] = useState(null);
-  const [selectedWorker, setSelectedWorker] = useState(null);
-  const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [showFYPicker, setShowFYPicker] = useState(false);
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [dataLoadingCount, setDataLoadingCount] = useState(0);
   const drawerAnimation = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
-
-  const addDataLoading = () => setDataLoadingCount((c) => c + 1);
-  const removeDataLoading = () => setDataLoadingCount((c) => Math.max(0, c - 1));
 
   useEffect(() => {
     const loadData = async () => {
@@ -59,10 +49,6 @@ export function AppProvider({ children }) {
     };
     loadData();
   }, []);
-
-  const bumpGeneralTxs = () => setGeneralTxsVersion((v) => v + 1);
-  const bumpWorkers = () => setWorkersVersion((v) => v + 1);
-  const bumpSuppliers = () => setSuppliersVersion((v) => v + 1);
 
   useEffect(() => {
     if (showDrawer) {
@@ -104,7 +90,7 @@ export function AppProvider({ children }) {
   const saveClientTx = async () => {
     if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
     const date = form.date || new Date().toISOString().split("T")[0];
-    const targetClientId = form.clientId || selectedClient;
+    const targetClientId = form.clientId;
     const client = await getClientWithTxs(targetClientId);
     if (!client) return;
     const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
@@ -140,7 +126,6 @@ export function AppProvider({ children }) {
     };
     try {
       await upsertGeneralTx(tx);
-      bumpGeneralTxs();
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -155,13 +140,11 @@ export function AppProvider({ children }) {
       const updated = { ...w, name: form.name.trim(), phone: form.phone || "" };
       try {
         await upsertWorker(updated);
-        bumpWorkers();
       } catch (_) {}
     } else {
       const newWorker = { id: Date.now(), name: form.name.trim(), phone: form.phone || "" };
       try {
         await upsertWorker(newWorker);
-        bumpWorkers();
       } catch (_) {}
     }
     setModal(null);
@@ -182,7 +165,6 @@ export function AppProvider({ children }) {
       };
       try {
         await upsertSupplier(updated);
-        bumpSuppliers();
       } catch (_) {}
     } else {
       const newSupplier = {
@@ -193,7 +175,6 @@ export function AppProvider({ children }) {
       };
       try {
         await upsertSupplier(newSupplier);
-        bumpSuppliers();
       } catch (_) {}
     }
     setModal(null);
@@ -209,7 +190,6 @@ export function AppProvider({ children }) {
   const deleteGeneralTx = async (id) => {
     try {
       await dbDeleteGeneralTx(id);
-      bumpGeneralTxs();
     } catch (_) {}
   };
 
@@ -217,7 +197,6 @@ export function AppProvider({ children }) {
     try {
       await dbDeleteClient(cid);
     } catch (_) {}
-    setSelectedClient(null);
     setTab("clients");
   };
 
@@ -233,25 +212,20 @@ export function AppProvider({ children }) {
   const deleteWorker = async (id) => {
     try {
       await dbDeleteWorker(id);
-      bumpWorkers();
     } catch (_) {}
-    if (selectedWorker === id) setSelectedWorker(null);
   };
 
   const deleteSupplier = async (id) => {
     try {
       await dbDeleteSupplier(id);
-      bumpSuppliers();
     } catch (_) {}
-    if (selectedSupplier === id) setSelectedSupplier(null);
   };
 
   const openClientTx = (cid, txType, editTx = null) => {
-    setSelectedClient(cid);
     if (editTx) {
       setForm({
-        editTxId: editTx.id,
         clientId: cid,
+        editTxId: editTx.id,
         txType: editTx.type,
         amount: editTx.amount,
         cat: editTx.cat,
@@ -262,6 +236,7 @@ export function AppProvider({ children }) {
       });
     } else {
       setForm({
+        clientId: cid,
         txType,
         cat: txType === "income" ? "مقدم" : CLIENT_EXPENSE_CATS[0],
         date: new Date().toISOString().split("T")[0],
@@ -273,7 +248,6 @@ export function AppProvider({ children }) {
   const handleFYChange = async (fy) => {
     setActiveFY(fy);
     setShowFYPicker(false);
-    setSelectedClient(null);
     try {
       await dbSetSettings({ activeFY: fy, customFYs, nissabPrice });
     } catch (_) {}
@@ -294,27 +268,19 @@ export function AppProvider({ children }) {
   };
 
   const value = {
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
+    loaded,
+    tab,
+    setTab,
+    modal,
+    setModal,
+    form,
+    setForm,
     activeFY,
     setActiveFY,
     customFYs,
     setCustomFYs,
     nissabPrice,
     setNissabPrice,
-    tab,
-    setTab,
-    selectedClient,
-    setSelectedClient,
-    selectedWorker,
-    setSelectedWorker,
-    selectedSupplier,
-    setSelectedSupplier,
-    modal,
-    setModal,
-    form,
-    setForm,
     showFYPicker,
     setShowFYPicker,
     showClientPicker,
@@ -323,10 +289,6 @@ export function AppProvider({ children }) {
     setShowDrawer,
     closeDrawer,
     drawerAnimation,
-    loaded,
-    dataLoadingCount,
-    addDataLoading,
-    removeDataLoading,
     saveClient,
     saveClientTx,
     saveGeneral,

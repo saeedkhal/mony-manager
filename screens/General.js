@@ -7,17 +7,17 @@ import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function General() {
-  const { generalTxsVersion, loaded, activeFY, deleteGeneralTx } = useApp();
+  const { tab, loaded, activeFY, deleteGeneralTx } = useApp();
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || tab !== "general") return;
     let cancelled = false;
     getGeneralTxs()
       .then((g) => { if (!cancelled) setGeneralTxs(g || []); })
       .catch(() => { if (!cancelled) setGeneralTxs([]); });
     return () => { cancelled = true; };
-  }, [loaded, generalTxsVersion]);
+  }, [loaded, tab]);
 
   const fyGeneralTxs = useMemo(
     () => (generalTxs || []).filter((t) => getFiscalYear(t.date) === activeFY),

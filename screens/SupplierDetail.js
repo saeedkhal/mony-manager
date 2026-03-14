@@ -6,17 +6,8 @@ import { CURRENCY } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
-export default function SupplierDetail() {
-  const {
-    suppliersVersion,
-    loaded,
-    activeFY,
-    selectedSupplier,
-    setSelectedSupplier,
-    setForm,
-    setModal,
-    deleteClientTx,
-  } = useApp();
+export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }) {
+  const { loaded, activeFY, setForm, setModal, deleteClientTx } = useApp();
   const [suppliers, setSuppliers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +29,7 @@ export default function SupplierDetail() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, suppliersVersion]);
+  }, [loaded, selectedSupplier]);
 
   const supplierStats = useMemo(() => {
     return (suppliers || [])

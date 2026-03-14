@@ -6,16 +6,8 @@ import { CURRENCY, STATUS_LABELS } from "../constants";
 import { getFiscalYear, fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
-export default function ClientDetail() {
-  const {
-    activeFY,
-    selectedClient,
-    setSelectedClient,
-    openClientTx,
-    deleteClientTx,
-    deleteClient,
-    toggleStatus,
-  } = useApp();
+export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
+  const { activeFY, openClientTx, deleteClientTx, deleteClient, toggleStatus } = useApp();
   const [client, setClient] = useState(null);
   const [workers, setWorkers] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -112,7 +104,10 @@ export default function ClientDetail() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.deleteBtn, styles.clientDetailHeaderBtn]}
-            onPress={() => deleteClient(client.id)}
+            onPress={async () => {
+              await deleteClient(client.id);
+              onClientDeleted?.();
+            }}
           >
             <Text style={styles.deleteBtnText}>حذف العميل</Text>
           </TouchableOpacity>

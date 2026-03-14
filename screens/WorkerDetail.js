@@ -6,17 +6,8 @@ import { CURRENCY } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
-export default function WorkerDetail() {
-  const {
-    workersVersion,
-    loaded,
-    activeFY,
-    selectedWorker,
-    setSelectedWorker,
-    setForm,
-    setModal,
-    deleteClientTx,
-  } = useApp();
+export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
+  const { loaded, activeFY, setForm, setModal, deleteClientTx } = useApp();
   const [workers, setWorkers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +29,7 @@ export default function WorkerDetail() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, workersVersion]);
+  }, [loaded, selectedWorker]);
 
   const workerStats = useMemo(() => {
     return (workers || [])

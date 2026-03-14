@@ -19,11 +19,8 @@ export default function Modals() {
     setForm,
     showClientPicker,
     setShowClientPicker,
-    workersVersion,
-    suppliersVersion,
     loaded,
     activeFY,
-    selectedClient,
     saveClient,
     saveClientTx,
     saveGeneral,
@@ -53,9 +50,9 @@ export default function Modals() {
         if (!cancelled) setSuppliers([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, workersVersion, suppliersVersion]);
+  }, [loaded, modal]);
 
-  const activeClient = clients.find((c) => c.id === selectedClient);
+  const activeClient = clients.find((c) => c.id === form.clientId);
 
   return (
     <>

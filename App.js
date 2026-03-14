@@ -12,7 +12,6 @@ import HeaderActions from "./components/HeaderActions";
 import Drawer from "./components/Drawer";
 import MainContent from "./screens/MainContent";
 import Modals from "./components/Modals";
-import GlobalSpinner from "./components/GlobalSpinner";
 import { NAV_ITEMS } from "./constants";
 import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
 import styles from "./styles/AppStyles";
@@ -27,9 +26,6 @@ function AppContent() {
     loaded,
     tab,
     setTab,
-    setSelectedClient,
-    setSelectedWorker,
-    setSelectedSupplier,
     showDrawer,
     setShowDrawer,
     closeDrawer,
@@ -38,9 +34,7 @@ function AppContent() {
     showFYPicker,
     setShowFYPicker,
     handleFYChange,
-    generalTxsVersion,
     customFYs,
-    dataLoadingCount,
   } = useApp();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
@@ -60,7 +54,7 @@ function AppContent() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, generalTxsVersion]);
+  }, [loaded]);
 
   const { allFYs } = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
 
@@ -110,17 +104,11 @@ function AppContent() {
         onClose={closeDrawer}
         navItems={NAV_ITEMS}
         activeTab={tab}
-        onTabChange={(k) => {
-          setTab(k);
-          setSelectedClient(null);
-          setSelectedWorker(null);
-          setSelectedSupplier(null);
-        }}
+        onTabChange={setTab}
         drawerAnimation={drawerAnimation}
         safeAreaBottom={insets.bottom}
       />
       <Modals />
-      <GlobalSpinner visible={dataLoadingCount > 0} tip="جاري التحميل..." />
     </View>
   );
 }
