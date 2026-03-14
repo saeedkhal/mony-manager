@@ -187,6 +187,28 @@ export async function setActiveFiscalYear(label) {
   }
 }
 
+/** Add a fiscal year label to fiscal_years table (is_active = 0). On web no-op. */
+export async function addFiscalYearLabel(label) {
+  try {
+    const database = await getDb();
+    if (!database) return;
+    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", label);
+  } catch (e) {
+    console.warn("DB addFiscalYearLabel error:", e?.message || e);
+  }
+}
+
+/** Remove a fiscal year label from fiscal_years table. Only removes if not active. On web no-op. */
+export async function removeFiscalYearLabel(label) {
+  try {
+    const database = await getDb();
+    if (!database) return;
+    await database.runAsync("DELETE FROM fiscal_years WHERE label = ? AND is_active = 0", label);
+  } catch (e) {
+    console.warn("DB removeFiscalYearLabel error:", e?.message || e);
+  }
+}
+
 function rowToClient(c, txRows) {
   return {
     id: c.id,
@@ -243,6 +265,7 @@ export async function getFullState() {
       settingsRows.length > 0;
     if (!hasData) return null;
 
+    const [activeFY, customFYs] = await Promise.all([getActiveFiscalYear(), getFiscalYears()]);
     const clients = clientsRows.map((c) => rowToClient(c, txRows));
     const generalTxs = generalRows.map((r) => ({
       id: r.id,
@@ -262,15 +285,16 @@ export async function getFullState() {
       phone: r.phone || "",
       category: r.category || "",
     }));
+    const nissabPrice = settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000;
 
     return {
       clients,
       generalTxs,
       workers,
       suppliers,
-      activeFY: settings.activeFY || null,
-      customFYs: settings.customFYs ? JSON.parse(settings.customFYs) : [],
-      nissabPrice: settings.nissabPrice != null ? Number(settings.nissabPrice) : null,
+      activeFY: activeFY || null,
+      customFYs: Array.isArray(customFYs) ? customFYs : [],
+      nissabPrice,
     };
   } catch (e) {
     console.warn("DB getFullState error:", e?.message || e);
@@ -391,15 +415,15 @@ export async function getSuppliers() {
   }
 }
 
-/** Get settings only. Returns { activeFY, customFYs, nissabPrice } with defaults on error. On web reads from AsyncStorage. */
+/** Get settings only (nissabPrice). Fiscal years come from fiscal_years table. On web reads nissabPrice from AsyncStorage. */
 export async function getSettings() {
   try {
     const database = await getDb();
     if (!database) {
       const state = await getWebState();
       return state
-        ? { activeFY: state.activeFY, customFYs: state.customFYs || [], nissabPrice: state.nissabPrice ?? 85000 }
-        : { activeFY: null, customFYs: [], nissabPrice: 85000 };
+        ? { nissabPrice: state.nissabPrice ?? 85000 }
+        : { nissabPrice: 85000 };
     }
 
     const rows = await database.getAllAsync("SELECT key, value FROM settings");
@@ -407,14 +431,14 @@ export async function getSettings() {
     for (const row of rows) {
       settings[row.key] = row.value;
     }
-    return {
-      activeFY: settings.activeFY || null,
-      customFYs: settings.customFYs ? JSON.parse(settings.customFYs) : [],
-      nissabPrice: settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000,
-    };
+    if ("activeFY" in settings || "customFYs" in settings) {
+      await database.runAsync("DELETE FROM settings WHERE key IN ('activeFY', 'customFYs')");
+    }
+    const nissabPrice = settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000;
+    return { nissabPrice };
   } catch (e) {
     console.warn("DB getSettings error:", e?.message || e);
-    return { activeFY: null, customFYs: [], nissabPrice: 85000 };
+    return { nissabPrice: 85000 };
   }
 }
 
@@ -496,16 +520,10 @@ export async function saveState(data) {
         s.category || ""
       );
     }
-    await database.runAsync(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-      "activeFY",
-      data.activeFY != null ? String(data.activeFY) : ""
-    );
-    await database.runAsync(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-      "customFYs",
-      JSON.stringify(data.customFYs || [])
-    );
+    if (data.activeFY != null) await setActiveFiscalYear(data.activeFY);
+    for (const label of data.customFYs || []) {
+      await addFiscalYearLabel(label);
+    }
     await database.runAsync(
       "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
       "nissabPrice",
@@ -816,40 +834,25 @@ export async function deleteSupplier(id) {
   }
 }
 
+/** Only nissabPrice is stored in settings table. Fiscal years use fiscal_years table. */
 export async function setSettings(settings) {
   try {
     const database = await getDb();
     if (!database) {
       const state = await getWebState();
-      const next = {
-        activeFY: settings.activeFY !== undefined ? settings.activeFY : (state && state.activeFY) ?? null,
-        customFYs: settings.customFYs !== undefined ? settings.customFYs : (state && state.customFYs) ?? [],
-        nissabPrice: settings.nissabPrice !== undefined ? settings.nissabPrice : (state && state.nissabPrice) ?? 85000,
-      };
+      const nissabPrice = settings.nissabPrice !== undefined ? settings.nissabPrice : (state && state.nissabPrice) ?? 85000;
       await setWebState({
         clients: (state && state.clients) || [],
         generalTxs: (state && state.generalTxs) || [],
         workers: (state && state.workers) || [],
         suppliers: (state && state.suppliers) || [],
-        ...next,
+        activeFY: state && state.activeFY,
+        customFYs: state && state.customFYs,
+        nissabPrice,
       });
       return;
     }
 
-    if (settings.activeFY !== undefined) {
-      await database.runAsync(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        "activeFY",
-        String(settings.activeFY)
-      );
-    }
-    if (settings.customFYs !== undefined) {
-      await database.runAsync(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        "customFYs",
-        JSON.stringify(settings.customFYs)
-      );
-    }
     if (settings.nissabPrice !== undefined) {
       await database.runAsync(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",

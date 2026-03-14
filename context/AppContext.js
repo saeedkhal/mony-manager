@@ -6,6 +6,11 @@ import {
   getWorkers,
   getSuppliers,
   getSettings,
+  getActiveFiscalYear,
+  getFiscalYears,
+  setActiveFiscalYear,
+  addFiscalYearLabel,
+  removeFiscalYearLabel,
   upsertClient,
   deleteClient as dbDeleteClient,
   deleteClientTx as dbDeleteClientTx,
@@ -247,7 +252,7 @@ export function AppProvider({ children }) {
     setActiveFY(fy);
     setShowFYPicker(false);
     try {
-      await dbSetSettings({ activeFY: fy, customFYs, nissabPrice });
+      await setActiveFiscalYear(fy);
     } catch (_) {}
   };
 
@@ -257,12 +262,29 @@ export function AppProvider({ children }) {
       customFYs: partial.customFYs !== undefined ? partial.customFYs : customFYs,
       nissabPrice: partial.nissabPrice !== undefined ? partial.nissabPrice : nissabPrice,
     };
-    setActiveFY(next.activeFY);
-    setCustomFYs(next.customFYs);
-    setNissabPrice(next.nissabPrice);
-    try {
-      await dbSetSettings(next);
-    } catch (_) {}
+    if (partial.activeFY !== undefined) {
+      setActiveFY(next.activeFY);
+      try {
+        await setActiveFiscalYear(next.activeFY);
+      } catch (_) {}
+    }
+    if (partial.customFYs !== undefined) {
+      const prevSet = new Set(customFYs);
+      const nextSet = new Set(next.customFYs);
+      for (const label of nextSet) {
+        if (!prevSet.has(label)) await addFiscalYearLabel(label);
+      }
+      for (const label of prevSet) {
+        if (!nextSet.has(label)) await removeFiscalYearLabel(label);
+      }
+      setCustomFYs(next.customFYs);
+    }
+    if (partial.nissabPrice !== undefined) {
+      setNissabPrice(next.nissabPrice);
+      try {
+        await dbSetSettings({ nissabPrice: next.nissabPrice });
+      } catch (_) {}
+    }
   };
 
   const value = {
