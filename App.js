@@ -41,9 +41,9 @@ function AppContent() {
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || activeFY == null) return;
     let cancelled = false;
-    Promise.all([getClients(), getGeneralTxs()])
+    Promise.all([getClients(activeFY), getGeneralTxs(activeFY)])
       .then(([c, g]) => {
         if (!cancelled) {
           setClients(c || []);
@@ -55,7 +55,7 @@ function AppContent() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded]);
+  }, [loaded, activeFY]);
 
   const { allFYs } = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
 

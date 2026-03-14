@@ -40,6 +40,7 @@ export function AppProvider({ children }) {
   const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [clientsRefreshKey, setClientsRefreshKey] = useState(0);
+  const [generalRefreshKey, setGeneralRefreshKey] = useState(0);
   const drawerAnimation = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
 
   useEffect(() => {
@@ -127,15 +128,19 @@ export function AppProvider({ children }) {
   const saveGeneral = async () => {
     if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
     const date = form.date || new Date().toISOString().split("T")[0];
+    await getActiveFiscalYear();
+    const fiscalYearId = await getActiveFiscalYearId();
     const tx = {
       id: form.editTxId || Date.now(),
       amount: Number(form.amount),
       cat: form.cat || GENERAL_EXPENSE_CATS[0],
       note: form.note || "",
       date,
+      fiscalYearId: fiscalYearId ?? null,
     };
     try {
       await upsertGeneralTx(tx);
+      setGeneralRefreshKey((k) => k + 1);
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -296,6 +301,7 @@ export function AppProvider({ children }) {
   const value = {
     loaded,
     clientsRefreshKey,
+    generalRefreshKey,
     modal,
     setModal,
     form,

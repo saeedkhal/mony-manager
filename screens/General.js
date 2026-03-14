@@ -4,28 +4,25 @@ import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { getGeneralTxs } from "../utils/db";
 import { CURRENCY, GENERAL_EXPENSE_CATS } from "../constants";
-import { fmt, getFiscalYear } from "../utils/helpers";
+import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function General() {
-  const { loaded, activeFY, deleteGeneralTx } = useApp();
+  const { loaded, activeFY, generalRefreshKey, deleteGeneralTx } = useApp();
   const isFocused = useIsFocused();
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded || !isFocused) return;
+    if (!loaded || !isFocused || activeFY == null) return;
     let cancelled = false;
-    getGeneralTxs()
+    getGeneralTxs(activeFY)
       .then((g) => { if (!cancelled) setGeneralTxs(g || []); })
       .catch(() => { if (!cancelled) setGeneralTxs([]); });
     return () => { cancelled = true; };
-  }, [loaded, isFocused]);
+  }, [loaded, isFocused, activeFY, generalRefreshKey]);
 
-  const fyGeneralTxs = useMemo(
-    () => (generalTxs || []).filter((t) => getFiscalYear(t.date) === activeFY),
-    [generalTxs, activeFY]
-  );
+  const fyGeneralTxs = generalTxs || [];
 
   return (
     <ScreenLayout>

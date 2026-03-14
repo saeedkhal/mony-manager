@@ -25,9 +25,9 @@ export default function Zakat() {
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded || !isFocused) return;
+    if (!loaded || !isFocused || activeFY == null) return;
     let cancelled = false;
-    Promise.all([getClients(), getGeneralTxs()])
+    Promise.all([getClients(activeFY), getGeneralTxs(activeFY)])
       .then(([c, g]) => {
         if (!cancelled) {
           setClients(c || []);
@@ -39,7 +39,7 @@ export default function Zakat() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, isFocused]);
+  }, [loaded, isFocused, activeFY]);
 
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
     clients,

@@ -107,7 +107,8 @@ async function initSchema(database) {
       amount REAL NOT NULL,
       cat TEXT,
       note TEXT,
-      date TEXT
+      date TEXT,
+      fiscal_year_id INTEGER REFERENCES fiscal_years(id)
     );
     CREATE TABLE IF NOT EXISTS workers (
       id INTEGER PRIMARY KEY NOT NULL,
@@ -151,6 +152,17 @@ async function initSchema(database) {
     await database.runAsync("ALTER TABLE clients DROP COLUMN fiscal_year");
   } catch (e) {
     if (e?.message != null && !e.message.includes("no such column")) throw e;
+  }
+  // Migration: add fiscal_year_id to general (no-op if column exists)
+  try {
+    await database.runAsync("ALTER TABLE general ADD COLUMN fiscal_year_id INTEGER REFERENCES fiscal_years(id)");
+  } catch (e) {
+    if (e?.message != null && !e.message.includes("duplicate column name")) throw e;
+  }
+  const activeFYRow = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
+  const defaultFYId = activeFYRow?.id ?? null;
+  if (defaultFYId != null) {
+    await database.runAsync("UPDATE general SET fiscal_year_id = ? WHERE fiscal_year_id IS NULL", defaultFYId);
   }
 }
 
@@ -298,7 +310,7 @@ export async function getFullState() {
     const txRows = await database.getAllAsync(
       "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
     );
-    const generalRows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general ORDER BY id");
+    const generalRows = await database.getAllAsync("SELECT id, amount, cat, note, date, fiscal_year_id FROM general ORDER BY id");
     const workersRows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
     const suppliersRows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
     const settingsRows = await database.getAllAsync("SELECT key, value FROM settings");
@@ -324,6 +336,7 @@ export async function getFullState() {
       cat: r.cat,
       note: r.note || "",
       date: r.date,
+      fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : null,
     }));
     const workers = workersRows.map((r) => ({
       id: r.id,
@@ -419,22 +432,40 @@ export async function getClientWithTxs(clientId) {
   }
 }
 
-/** Get all general txs. Returns [] on error. On web reads from AsyncStorage. */
-export async function getGeneralTxs() {
+/** Get all general txs. If activeFY (label) is passed, only txs for that fiscal year are returned. Returns [] on error. On web reads from AsyncStorage. */
+export async function getGeneralTxs(activeFY = null) {
   try {
     const database = await getDb();
     if (!database) {
       const state = await getWebState();
-      return state ? state.generalTxs : [];
+      let list = state ? state.generalTxs : [];
+      if (activeFY != null && activeFY !== "") {
+        const fyId = await getFiscalYearIdByLabel(activeFY);
+        if (fyId != null) list = (list || []).filter((t) => t.fiscalYearId === fyId);
+      }
+      return list;
     }
 
-    const rows = await database.getAllAsync("SELECT id, amount, cat, note, date FROM general ORDER BY id");
+    let sql = "SELECT id, amount, cat, note, date, fiscal_year_id FROM general";
+    const params = [];
+    if (activeFY != null && activeFY !== "") {
+      const fyId = await getFiscalYearIdByLabel(activeFY);
+      if (fyId != null) {
+        sql += " WHERE fiscal_year_id = ?";
+        params.push(fyId);
+      }
+    }
+    sql += " ORDER BY id";
+    const rows = params.length
+      ? await database.getAllAsync(sql, ...params)
+      : await database.getAllAsync(sql);
     return rows.map((r) => ({
       id: r.id,
       amount: r.amount,
       cat: r.cat,
       note: r.note || "",
       date: r.date,
+      fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : null,
     }));
   } catch (e) {
     console.warn("DB getGeneralTxs error:", e?.message || e);
@@ -562,12 +593,13 @@ export async function saveState(data) {
     }
     for (const t of data.generalTxs || []) {
       await database.runAsync(
-        "INSERT OR REPLACE INTO general (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO general (id, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?)",
         t.id,
         t.amount,
         t.cat || "",
         t.note || "",
-        t.date || ""
+        t.date || "",
+        t.fiscalYearId ?? null
       );
     }
     for (const w of data.workers || []) {
@@ -754,7 +786,14 @@ export async function upsertGeneralTx(tx) {
       const state = await getWebState();
       if (!state) return;
       const generalTxs = [...(state.generalTxs || [])];
-      const row = { id: tx.id, amount: tx.amount, cat: tx.cat || "", note: tx.note || "", date: tx.date || "" };
+      const row = {
+        id: tx.id,
+        amount: tx.amount,
+        cat: tx.cat || "",
+        note: tx.note || "",
+        date: tx.date || "",
+        fiscalYearId: tx.fiscalYearId ?? null,
+      };
       const i = generalTxs.findIndex((t) => String(t.id) === String(tx.id));
       if (i >= 0) generalTxs[i] = row;
       else generalTxs.push(row);
@@ -763,12 +802,13 @@ export async function upsertGeneralTx(tx) {
     }
 
     await database.runAsync(
-      "INSERT OR REPLACE INTO general (id, amount, cat, note, date) VALUES (?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO general (id, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?)",
       tx.id,
       tx.amount,
       tx.cat || "",
       tx.note || "",
-      tx.date || ""
+      tx.date || "",
+      tx.fiscalYearId ?? null
     );
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
