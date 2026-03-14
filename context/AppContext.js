@@ -7,6 +7,7 @@ import {
   getSuppliers,
   getSettings,
   getActiveFiscalYear,
+  getActiveFiscalYearId,
   getFiscalYears,
   setActiveFiscalYear,
   addFiscalYearLabel,
@@ -38,6 +39,7 @@ export function AppProvider({ children }) {
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [clientsRefreshKey, setClientsRefreshKey] = useState(0);
   const drawerAnimation = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
 
   useEffect(() => {
@@ -75,17 +77,21 @@ export function AppProvider({ children }) {
 
   const saveClient = async () => {
     if (!form.name?.trim()) return;
+    await getActiveFiscalYear(); // ensure active fiscal year row exists
+    const fiscalYearId = await getActiveFiscalYearId();
     const newClient = {
       id: Date.now(),
       name: form.name.trim(),
       project: form.project || PROJECT_TYPES[0],
       status: "active",
       note: form.note || "",
+      fiscalYearId: fiscalYearId ?? null,
       createdAt: new Date().toISOString().split("T")[0],
       txs: [],
     };
     try {
       await upsertClient(newClient);
+      setClientsRefreshKey((k) => k + 1);
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -289,6 +295,7 @@ export function AppProvider({ children }) {
 
   const value = {
     loaded,
+    clientsRefreshKey,
     modal,
     setModal,
     form,

@@ -9,21 +9,21 @@ import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function Clients() {
-  const { loaded, activeFY } = useApp();
+  const { loaded, activeFY, clientsRefreshKey } = useApp();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || activeFY == null) return;
     let cancelled = false;
     setLoading(true);
-    getClients()
+    getClients(activeFY)
       .then((list) => { if (!cancelled) setClients(list || []); })
       .catch(() => { if (!cancelled) setClients([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded]);
+  }, [loaded, activeFY, clientsRefreshKey]);
 
   const clientsWithYearTxs = useMemo(
     () =>

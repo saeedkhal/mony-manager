@@ -87,7 +87,8 @@ async function initSchema(database) {
       project TEXT,
       status TEXT DEFAULT 'active',
       note TEXT,
-      created_at TEXT
+      created_at TEXT,
+      fiscal_year_id INTEGER REFERENCES fiscal_years(id)
     );
     CREATE TABLE IF NOT EXISTS client_transactions (
       id INTEGER PRIMARY KEY NOT NULL,
@@ -129,6 +130,28 @@ async function initSchema(database) {
       is_active INTEGER DEFAULT 0
     );
   `);
+  // Migration: add fiscal_year_id to clients (no-op if column exists)
+  try {
+    await database.runAsync("ALTER TABLE clients ADD COLUMN fiscal_year_id INTEGER REFERENCES fiscal_years(id)");
+  } catch (e) {
+    if (e?.message != null && !e.message.includes("duplicate column name")) throw e;
+  }
+  // Backfill from old fiscal_year (text) if that column exists, then drop it
+  try {
+    await database.runAsync(
+      "UPDATE clients SET fiscal_year_id = (SELECT id FROM fiscal_years f WHERE f.label = clients.fiscal_year LIMIT 1) WHERE fiscal_year_id IS NULL"
+    );
+  } catch (_) {}
+  const activeRow = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
+  const defaultId = activeRow?.id ?? null;
+  if (defaultId != null) {
+    await database.runAsync("UPDATE clients SET fiscal_year_id = ? WHERE fiscal_year_id IS NULL", defaultId);
+  }
+  try {
+    await database.runAsync("ALTER TABLE clients DROP COLUMN fiscal_year");
+  } catch (e) {
+    if (e?.message != null && !e.message.includes("no such column")) throw e;
+  }
 }
 
 /** Get the active fiscal year label from fiscal_years table. On web uses AsyncStorage activeFY. If none set, returns current FY and ensures a row exists. */
@@ -209,6 +232,33 @@ export async function removeFiscalYearLabel(label) {
   }
 }
 
+/** Get the active fiscal year id from fiscal_years table. On web returns null. */
+export async function getActiveFiscalYearId() {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
+    return row?.id ?? null;
+  } catch (e) {
+    console.warn("DB getActiveFiscalYearId error:", e?.message || e);
+    return null;
+  }
+}
+
+/** Get fiscal year id by label. Returns null if not found. */
+export async function getFiscalYearIdByLabel(label) {
+  if (label == null || label === "") return null;
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE label = ? LIMIT 1", label);
+    return row?.id ?? null;
+  } catch (e) {
+    console.warn("DB getFiscalYearIdByLabel error:", e?.message || e);
+    return null;
+  }
+}
+
 function rowToClient(c, txRows) {
   return {
     id: c.id,
@@ -216,6 +266,7 @@ function rowToClient(c, txRows) {
     project: c.project || "",
     status: c.status || "active",
     note: c.note || "",
+    fiscalYearId: c.fiscal_year_id != null ? c.fiscal_year_id : null,
     createdAt: c.created_at || "",
     txs: (txRows || [])
       .filter((t) => t.client_id === c.id)
@@ -242,7 +293,7 @@ export async function getFullState() {
     if (!database) return getWebState();
 
     const clientsRows = await database.getAllAsync(
-      "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
+      "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id"
     );
     const txRows = await database.getAllAsync(
       "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
@@ -304,18 +355,33 @@ export async function getFullState() {
 
 // ---------- Targeted getters (fetch only what you need) ----------
 
-/** Get all clients with their txs. Returns [] on error. On web reads from AsyncStorage. */
-export async function getClients() {
+/** Get all clients with their txs. If activeFY (label) is passed, only clients for that fiscal year are returned. Returns [] on error. On web reads from AsyncStorage. */
+export async function getClients(activeFY = null) {
   try {
     const database = await getDb();
     if (!database) {
       const state = await getWebState();
-      return state ? state.clients : [];
+      let list = state ? state.clients : [];
+      if (activeFY != null && activeFY !== "") {
+        const fyId = await getFiscalYearIdByLabel(activeFY);
+        if (fyId != null) list = (list || []).filter((c) => c.fiscalYearId === fyId);
+      }
+      return list;
     }
 
-    const clientsRows = await database.getAllAsync(
-      "SELECT id, name, project, status, note, created_at FROM clients ORDER BY id"
-    );
+    let sql = "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients";
+    const params = [];
+    if (activeFY != null && activeFY !== "") {
+      const fyId = await getFiscalYearIdByLabel(activeFY);
+      if (fyId != null) {
+        sql += " WHERE fiscal_year_id = ?";
+        params.push(fyId);
+      }
+    }
+    sql += " ORDER BY id";
+    const clientsRows = params.length
+      ? await database.getAllAsync(sql, ...params)
+      : await database.getAllAsync(sql);
     const txRows = await database.getAllAsync(
       "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
     );
@@ -338,7 +404,7 @@ export async function getClientWithTxs(clientId) {
     }
 
     const clientRows = await database.getAllAsync(
-      "SELECT id, name, project, status, note, created_at FROM clients WHERE id = ?",
+      "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE id = ?",
       clientId
     );
     if (clientRows.length === 0) return null;
@@ -469,13 +535,14 @@ export async function saveState(data) {
 
     for (const c of data.clients || []) {
       await database.runAsync(
-        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
         c.id,
         c.name || "",
         c.project || "",
         c.status || "active",
         c.note || "",
-        c.createdAt || ""
+        c.createdAt || "",
+        c.fiscalYearId ?? null
       );
       await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", c.id);
       for (const t of c.txs || []) {
@@ -543,13 +610,14 @@ export async function upsertClient(client) {
   try {
     const ran = await withDbRetry(async (database) => {
       await database.runAsync(
-        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
         client.id,
         client.name || "",
         client.project || "",
         client.status || "active",
         client.note || "",
-        client.createdAt || ""
+        client.createdAt || "",
+        client.fiscalYearId ?? null
       );
       await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", client.id);
       for (const t of client.txs || []) {
