@@ -27,7 +27,7 @@ export default function Zakat() {
   useEffect(() => {
     if (!loaded || !isFocused || activeFY == null) return;
     let cancelled = false;
-    Promise.all([getClients(activeFY), getGeneralTxs(activeFY)])
+    Promise.all([getClients(), getGeneralTxs(activeFY)])
       .then(([c, g]) => {
         if (!cancelled) {
           setClients(c || []);

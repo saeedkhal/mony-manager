@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getClients } from "../utils/db";
 import { STATUS_LABELS } from "../constants";
-import { fmt, getFiscalYear } from "../utils/helpers";
+import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
@@ -18,24 +18,17 @@ export default function Clients() {
     if (!loaded || activeFY == null) return;
     let cancelled = false;
     setLoading(true);
-    getClients(activeFY)
+    getClients()
       .then((list) => { if (!cancelled) setClients(list || []); })
       .catch(() => { if (!cancelled) setClients([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [loaded, activeFY, clientsRefreshKey]);
 
-  const clientsWithYearTxs = useMemo(
-    () =>
-      (clients || []).map((c) => ({
-        ...c,
-        txs: (c.txs || []).filter((t) => getFiscalYear(t?.date) === activeFY),
-      })),
-    [clients, activeFY]
-  );
+  const clientsWithYearTxs = clients || [];
 
   const totalsForYear = (c) => {
-    const txs = (c.txs || []).filter((t) => getFiscalYear(t?.date) === activeFY);
+    const txs = c.txs || [];
     const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
     const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
     return { income, expense, profit: income - expense };

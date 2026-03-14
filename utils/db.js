@@ -150,39 +150,6 @@ async function initSchema(database) {
       is_active INTEGER DEFAULT 0
     );
   `);
-  // Migration: add fiscal_year_id to clients (no-op if column exists)
-  try {
-    await database.runAsync("ALTER TABLE clients ADD COLUMN fiscal_year_id INTEGER REFERENCES fiscal_years(id)");
-  } catch (e) {
-    if (e?.message != null && !e.message.includes("duplicate column name")) throw e;
-  }
-  // Backfill from old fiscal_year (text) if that column exists, then drop it
-  try {
-    await database.runAsync(
-      "UPDATE clients SET fiscal_year_id = (SELECT id FROM fiscal_years f WHERE f.label = clients.fiscal_year LIMIT 1) WHERE fiscal_year_id IS NULL"
-    );
-  } catch (_) {}
-  const activeRow = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
-  const defaultId = activeRow?.id ?? null;
-  if (defaultId != null) {
-    await database.runAsync("UPDATE clients SET fiscal_year_id = ? WHERE fiscal_year_id IS NULL", defaultId);
-  }
-  try {
-    await database.runAsync("ALTER TABLE clients DROP COLUMN fiscal_year");
-  } catch (e) {
-    if (e?.message != null && !e.message.includes("no such column")) throw e;
-  }
-  // Migration: add fiscal_year_id to general (no-op if column exists)
-  try {
-    await database.runAsync("ALTER TABLE general ADD COLUMN fiscal_year_id INTEGER REFERENCES fiscal_years(id)");
-  } catch (e) {
-    if (e?.message != null && !e.message.includes("duplicate column name")) throw e;
-  }
-  const activeFYRow = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
-  const defaultFYId = activeFYRow?.id ?? null;
-  if (defaultFYId != null) {
-    await database.runAsync("UPDATE general SET fiscal_year_id = ? WHERE fiscal_year_id IS NULL", defaultFYId);
-  }
 }
 
 /** Get the active fiscal year label from fiscal_years table. On web uses AsyncStorage activeFY. If none set, returns current FY and ensures a row exists. */
@@ -204,12 +171,6 @@ async function getFiscalYearsWithDb(database) {
 
 async function getActiveFiscalYearIdWithDb(database) {
   const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE is_active = 1 LIMIT 1");
-  return row?.id ?? null;
-}
-
-async function getFiscalYearIdByLabelWithDb(database, label) {
-  if (label == null || label === "") return null;
-  const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE label = ? LIMIT 1", label);
   return row?.id ?? null;
 }
 
@@ -280,17 +241,6 @@ export async function getActiveFiscalYearId() {
     return await runDb(getActiveFiscalYearIdWithDb);
   } catch (e) {
     console.warn("DB getActiveFiscalYearId error:", e?.message || e);
-    return null;
-  }
-}
-
-export async function getFiscalYearIdByLabel(label) {
-  if (label == null || label === "") return null;
-  try {
-    if (IS_WEB) return null;
-    return await runDb((db) => getFiscalYearIdByLabelWithDb(db, label));
-  } catch (e) {
-    console.warn("DB getFiscalYearIdByLabel error:", e?.message || e);
     return null;
   }
 }
@@ -393,32 +343,23 @@ export async function getFullState() {
 
 // ---------- Targeted getters (fetch only what you need) ----------
 
-/** Get all clients with their txs. If activeFY (label) is passed, only clients for that fiscal year are returned. Returns [] on error. On web reads from AsyncStorage. */
-export async function getClients(activeFY = null) {
+/** Get all clients for the active fiscal year (is_active = 1), with their txs. Returns [] on error. On web reads from AsyncStorage. */
+export async function getClients() {
   try {
     if (IS_WEB) {
       const state = await getWebState();
-      let list = state ? state.clients : [];
-      if (activeFY != null && activeFY !== "") {
-        const fyId = await getFiscalYearIdByLabel(activeFY);
-        if (fyId != null) list = (list || []).filter((c) => c.fiscalYearId === fyId);
-      }
-      return list;
+      return state ? state.clients : [];
     }
     return await runDb(async (database) => {
-      let sql = "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients";
-      const params = [];
-      if (activeFY != null && activeFY !== "") {
-        const fyId = await getFiscalYearIdByLabelWithDb(database, activeFY);
-        if (fyId != null) {
-          sql += " WHERE fiscal_year_id = ?";
-          params.push(fyId);
-        }
-      }
-      sql += " ORDER BY id";
-      const clientsRows = params.length
-        ? await database.getAllAsync(sql, ...params)
-        : await database.getAllAsync(sql);
+      const fyId = await getActiveFiscalYearIdWithDb(database);
+      const sql =
+        fyId != null
+          ? "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE fiscal_year_id = ? ORDER BY id"
+          : "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id";
+      const clientsRows =
+        fyId != null
+          ? await database.getAllAsync(sql, fyId)
+          : await database.getAllAsync(sql);
       const txRows = await database.getAllAsync(
         "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
       );
@@ -466,7 +407,7 @@ export async function getGeneralTxs(activeFY = null) {
       const state = await getWebState();
       let list = state ? state.generalTxs : [];
       if (activeFY != null && activeFY !== "") {
-        const fyId = await getFiscalYearIdByLabel(activeFY);
+        const fyId = null;
         if (fyId != null) list = (list || []).filter((t) => t.fiscalYearId === fyId);
       }
       return list;
@@ -475,7 +416,7 @@ export async function getGeneralTxs(activeFY = null) {
       let sql = "SELECT id, amount, cat, note, date, fiscal_year_id FROM general";
       const params = [];
       if (activeFY != null && activeFY !== "") {
-        const fyId = await getFiscalYearIdByLabelWithDb(database, activeFY);
+        const fyId = await getActiveFiscalYearIdWithDb(database);
         if (fyId != null) {
           sql += " WHERE fiscal_year_id = ?";
           params.push(fyId);
