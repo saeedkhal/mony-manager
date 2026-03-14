@@ -3,13 +3,13 @@ import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getSuppliers, getClients } from "../utils/db";
 import { CURRENCY } from "../constants";
-import { fmt, getFiscalYear } from "../utils/helpers";
+import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import SupplierDetail from "./SupplierDetail";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function Suppliers() {
-  const { loaded, activeFY, setForm, setModal, deleteSupplier } = useApp();
+  const { loaded, setForm, setModal, deleteSupplier } = useApp();
   const [suppliers, setSuppliers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,12 +39,7 @@ export default function Suppliers() {
       .map((s) => {
         const matchingTxs = (clients || []).flatMap((c) =>
           (c.txs || [])
-            .filter(
-              (t) =>
-                getFiscalYear(t.date) === activeFY &&
-                t.type === "expense" &&
-                t.supplierId === s.id
-            )
+            .filter((t) => t.type === "expense" && t.supplierId === s.id)
             .map((t) => ({ ...t, clientId: c.id, clientName: c.name }))
         );
         const total = matchingTxs.reduce((sum, t) => sum + t.amount, 0);
@@ -52,7 +47,7 @@ export default function Suppliers() {
         return { ...s, total, count, txs: matchingTxs };
       })
       .sort((a, b) => b.total - a.total);
-  }, [suppliers, clients, activeFY]);
+  }, [suppliers, clients]);
 
   if (selectedSupplier) {
     return (
@@ -124,7 +119,7 @@ export default function Suppliers() {
                 </View>
               </View>
               <View style={styles.supplierCardStats}>
-                <Text style={styles.supplierCardStatsLabel}>إجمالي المشتريات ({activeFY})</Text>
+                <Text style={styles.supplierCardStatsLabel}>إجمالي المشتريات</Text>
                 <Text style={styles.supplierCardStatsValue}>
                   {fmt(s.total)} {CURRENCY}
                 </Text>

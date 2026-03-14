@@ -5,8 +5,6 @@ export default function Header({
   onMenuPress,
   title,
   activeFY,
-  allFYs,
-  showFYPicker,
   onToggleFYPicker,
   onFYChange,
   getCurrentFiscalYear,
@@ -27,27 +25,8 @@ export default function Header({
         <Text style={styles.fyLabel}>السنة المالية:</Text>
         <View style={styles.fyPickerContainer}>
           <TouchableOpacity style={styles.fyPickerBtn} onPress={onToggleFYPicker}>
-            <Text style={styles.fyPickerText}>📅 {activeFY} ▾</Text>
+            <Text style={styles.fyPickerText}>📅 {activeFY}</Text>
           </TouchableOpacity>
-          {showFYPicker && (
-            <View style={styles.fyPickerDropdown}>
-              <ScrollView style={styles.fyPickerList}>
-                {(allFYs || []).map((fy) => (
-                  <TouchableOpacity
-                    key={fy}
-                    style={[styles.fyPickerItem, fy === activeFY && styles.fyPickerItemActive]}
-                    onPress={() => onFYChange(fy)}
-                  >
-                    <Text style={[styles.fyPickerItemText, fy === activeFY && styles.fyPickerItemTextActive]}>
-                      {fy === getCurrentFiscalYear() ? "⭐ " : ""}
-                      {fy}
-                    </Text>
-                    <Text style={styles.fyPickerItemSubtext}>{getFiscalYearLabel(fy)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
         </View>
         <Text style={styles.fyLabelSub}>{getFiscalYearLabel(activeFY)}</Text>
         {activeFY !== getCurrentFiscalYear() && (
@@ -91,6 +70,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#818cf8",
     flex: 1,
+    textAlign: "center",
   },
   headerActions: {
     flexDirection: "row",

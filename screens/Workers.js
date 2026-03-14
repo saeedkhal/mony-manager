@@ -3,13 +3,13 @@ import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getWorkers, getClients } from "../utils/db";
 import { CURRENCY } from "../constants";
-import { fmt, getFiscalYear } from "../utils/helpers";
+import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import WorkerDetail from "./WorkerDetail";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function Workers() {
-  const { loaded, activeFY, setForm, setModal, deleteWorker } = useApp();
+  const { loaded, setForm, setModal, deleteWorker } = useApp();
   const [workers, setWorkers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,12 +39,7 @@ export default function Workers() {
       .map((w) => {
         const matchingTxs = (clients || []).flatMap((c) =>
           (c.txs || [])
-            .filter(
-              (t) =>
-                getFiscalYear(t.date) === activeFY &&
-                t.type === "expense" &&
-                t.workerId === w.id
-            )
+            .filter((t) => t.type === "expense" && t.workerId === w.id)
             .map((t) => ({ ...t, clientId: c.id, clientName: c.name }))
         );
         const total = matchingTxs.reduce((s, t) => s + t.amount, 0);
@@ -52,7 +47,7 @@ export default function Workers() {
         return { ...w, total, count, txs: matchingTxs };
       })
       .sort((a, b) => b.total - a.total);
-  }, [workers, clients, activeFY]);
+  }, [workers, clients]);
 
   if (selectedWorker) return <WorkerDetail selectedWorker={selectedWorker} setSelectedWorker={setSelectedWorker} />;
 
@@ -109,7 +104,7 @@ export default function Workers() {
                 </View>
               </View>
               <View style={styles.workerCardStats}>
-                <Text style={styles.workerCardStatsLabel}>إجمالي المصروفات ({activeFY})</Text>
+                <Text style={styles.workerCardStatsLabel}>إجمالي المصروفات</Text>
                 <Text style={styles.workerCardStatsValue}>
                   {fmt(w.total)} {CURRENCY}
                 </Text>

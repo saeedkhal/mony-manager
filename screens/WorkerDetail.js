@@ -3,12 +3,12 @@ import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getWorkers, getClients } from "../utils/db";
 import { CURRENCY } from "../constants";
-import { fmt, getFiscalYear } from "../utils/helpers";
+import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
-  const { loaded, activeFY, setForm, setModal, deleteClientTx } = useApp();
+  const { loaded, setForm, setModal, deleteClientTx } = useApp();
   const [workers, setWorkers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,12 +37,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
       .map((w) => {
         const matchingTxs = (clients || []).flatMap((c) =>
           (c.txs || [])
-            .filter(
-              (t) =>
-                getFiscalYear(t.date) === activeFY &&
-                t.type === "expense" &&
-                t.workerId === w.id
-            )
+            .filter((t) => t.type === "expense" && t.workerId === w.id)
             .map((t) => ({ ...t, clientId: c.id, clientName: c.name }))
         );
         const total = matchingTxs.reduce((s, t) => s + t.amount, 0);
@@ -50,7 +45,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
         return { ...w, total, count, txs: matchingTxs };
       })
       .sort((a, b) => b.total - a.total);
-  }, [workers, clients, activeFY]);
+  }, [workers, clients]);
 
   const activeWorker = useMemo(
     () => (selectedWorker ? workerStats.find((w) => w.id === selectedWorker) : null),
@@ -82,7 +77,6 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
         <Text style={styles.clientDetailName} numberOfLines={2}>
           👷 {activeWorker.name}
         </Text>
-        <Text style={styles.clientDetailMeta}>السنة المالية {activeFY}</Text>
         {activeWorker.phone ? (
           <Text style={styles.clientDetailMeta}>📞 {activeWorker.phone}</Text>
         ) : null}
@@ -108,7 +102,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
           {fmt(activeWorker.total)} {CURRENCY}
         </Text>
         <Text style={styles.workerDetailStatsCount}>
-          {activeWorker.count} معاملة في {activeFY}
+          {activeWorker.count} معاملة
         </Text>
       </View>
 
@@ -130,7 +124,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
       {activeWorker.txs.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>📭</Text>
-          <Text style={styles.emptyText}>لا توجد معاملات في {activeFY}</Text>
+          <Text style={styles.emptyText}>لا توجد معاملات</Text>
         </View>
       ) : (
         <View style={styles.txList}>
