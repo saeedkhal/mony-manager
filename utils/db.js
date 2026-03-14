@@ -80,12 +80,6 @@ async function withDbRetry(fn) {
 
 async function initSchema(database) {
   await database.execAsync(`
-    DROP TABLE IF EXISTS client_transactions;
-    DROP TABLE IF EXISTS clients;
-    DROP TABLE IF EXISTS general;
-    DROP TABLE IF EXISTS workers;
-    DROP TABLE IF EXISTS suppliers;
-    DROP TABLE IF EXISTS settings;
     CREATE TABLE IF NOT EXISTS clients (
       id INTEGER PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -440,9 +434,21 @@ export async function saveState(data) {
         s.category || ""
       );
     }
-    await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "activeFY", data.activeFY != null ? String(data.activeFY) : "");
-    await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "customFYs", JSON.stringify(data.customFYs || []));
-    await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "nissabPrice", data.nissabPrice != null ? String(data.nissabPrice) : "85000");
+    await database.runAsync(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+      "activeFY",
+      data.activeFY != null ? String(data.activeFY) : ""
+    );
+    await database.runAsync(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+      "customFYs",
+      JSON.stringify(data.customFYs || [])
+    );
+    await database.runAsync(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+      "nissabPrice",
+      data.nissabPrice != null ? String(data.nissabPrice) : "85000"
+    );
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB saveState error:", e.message);
@@ -530,7 +536,17 @@ export async function upsertClientTx(clientId, tx) {
         if (String(c.id) !== String(clientId)) return c;
         const txs = [...(c.txs || [])];
         const i = txs.findIndex((t) => String(t.id) === String(tx.id));
-        const row = { ...tx, id: tx.id, type: tx.type || "income", amount: tx.amount, cat: tx.cat || "", note: tx.note || "", date: tx.date || "", workerId: tx.workerId, supplierId: tx.supplierId };
+        const row = {
+          ...tx,
+          id: tx.id,
+          type: tx.type || "income",
+          amount: tx.amount,
+          cat: tx.cat || "",
+          note: tx.note || "",
+          date: tx.date || "",
+          workerId: tx.workerId,
+          supplierId: tx.supplierId,
+        };
         if (i >= 0) txs[i] = row;
         else txs.push(row);
         return { ...c, txs };
@@ -690,7 +706,12 @@ export async function upsertSupplier(supplier) {
       const state = await getWebState();
       if (!state) return;
       const suppliers = [...(state.suppliers || [])];
-      const row = { id: supplier.id, name: supplier.name, phone: supplier.phone || "", category: supplier.category || "" };
+      const row = {
+        id: supplier.id,
+        name: supplier.name,
+        phone: supplier.phone || "",
+        category: supplier.category || "",
+      };
       const i = suppliers.findIndex((s) => String(s.id) === String(supplier.id));
       if (i >= 0) suppliers[i] = row;
       else suppliers.push(row);
@@ -754,13 +775,25 @@ export async function setSettings(settings) {
     }
 
     if (settings.activeFY !== undefined) {
-      await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "activeFY", String(settings.activeFY));
+      await database.runAsync(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        "activeFY",
+        String(settings.activeFY)
+      );
     }
     if (settings.customFYs !== undefined) {
-      await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "customFYs", JSON.stringify(settings.customFYs));
+      await database.runAsync(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        "customFYs",
+        JSON.stringify(settings.customFYs)
+      );
     }
     if (settings.nissabPrice !== undefined) {
-      await database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "nissabPrice", String(settings.nissabPrice));
+      await database.runAsync(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        "nissabPrice",
+        String(settings.nissabPrice)
+      );
     }
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {

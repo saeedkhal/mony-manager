@@ -1,10 +1,10 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
 import { useScreenData } from "../hooks/useScreenData";
 import { STATUS_LABELS } from "../constants";
-import { fmt } from "../utils/helpers";
+import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
 
@@ -28,7 +28,21 @@ export default function Clients() {
     loaded
   );
   const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
-  const { fyClients, clientTotals } = appData;
+  const { clientTotals } = appData;
+  const clientsToShow = useMemo(
+    () =>
+      (clients || []).map((c) => ({
+        ...c,
+        txs: (c.txs || []).filter((t) => getFiscalYear(t?.date) === activeFY),
+      })),
+    [clients, activeFY]
+  );
+  const totalsForYear = (c) => {
+    const txs = (c.txs || []).filter((t) => getFiscalYear(t?.date) === activeFY);
+    const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+    const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+    return { income, expense, profit: income - expense };
+  };
 
   if (selectedClient) {
     return <ClientDetail />;
@@ -44,17 +58,11 @@ export default function Clients() {
       ) : (
         <>
           <Text style={styles.sectionSubtitle}>
-            عرض العملاء الذين لهم معاملات في السنة المالية {activeFY}
+            جميع العملاء — أرقام السنة المالية {activeFY}
           </Text>
-          {fyClients.length === 0 && (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>📭</Text>
-              <Text style={styles.emptyText}>لا توجد معاملات في هذه السنة المالية</Text>
-            </View>
-          )}
           <View style={styles.clientsGrid}>
-            {fyClients.map((c) => {
-              const t = clientTotals(c);
+            {clientsToShow.map((c) => {
+              const t = totalsForYear(c);
               const s = STATUS_LABELS[c.status];
               return (
                 <TouchableOpacity
