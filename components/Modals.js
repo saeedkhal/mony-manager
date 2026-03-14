@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
 import CustomModal from "./Modal";
 import { useApp } from "../context/AppContext";
-import { useScreenData } from "../hooks/useScreenData";
+import { getClients, getWorkers, getSuppliers } from "../utils/db";
 import {
   CURRENCY,
   CLIENT_EXPENSE_CATS,
@@ -20,12 +20,10 @@ export default function Modals() {
     showClientPicker,
     setShowClientPicker,
     clientsVersion,
-    generalTxsVersion,
     workersVersion,
     suppliersVersion,
     loaded,
     activeFY,
-    customFYs,
     selectedClient,
     saveClient,
     saveClientTx,
@@ -35,13 +33,28 @@ export default function Modals() {
     persistSettings,
   } = useApp();
 
-  const { clients, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
-  );
+  const [clients, setClients] = useState([]);
+  const [workers, setWorkers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    Promise.all([getClients(), getWorkers(), getSuppliers()])
+      .then(([c, w, s]) => {
+        if (!cancelled) {
+          setClients(c || []);
+          setWorkers(w || []);
+          setSuppliers(s || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setClients([]);
+        if (!cancelled) setWorkers([]);
+        if (!cancelled) setSuppliers([]);
+      });
+    return () => { cancelled = true; };
+  }, [loaded, clientsVersion, workersVersion, suppliersVersion]);
 
   const activeClient = clients.find((c) => c.id === selectedClient);
 

@@ -1,22 +1,15 @@
-import React from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { useAppData } from "../hooks/useAppData";
-import { useScreenData } from "../hooks/useScreenData";
+import { getClientWithTxs, getWorkers, getSuppliers } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
-import { getFiscalYear } from "../utils/helpers";
-import { fmt } from "../utils/helpers";
+import { getFiscalYear, fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function ClientDetail() {
   const {
     clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded,
     activeFY,
-    customFYs,
     selectedClient,
     setSelectedClient,
     openClientTx,
@@ -24,28 +17,73 @@ export default function ClientDetail() {
     deleteClient,
     toggleStatus,
   } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
-  );
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
-  const { clientTotals } = appData;
+  const [client, setClient] = useState(null);
+  const [workers, setWorkers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const activeClient = clients.find((c) => c.id === selectedClient);
-  const activeClientFY = activeClient
-    ? { ...activeClient, txs: activeClient.txs.filter((t) => getFiscalYear(t.date) === activeFY) }
-    : null;
+  useEffect(() => {
+    if (!selectedClient) {
+      setClient(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      getClientWithTxs(selectedClient),
+      getWorkers(),
+      getSuppliers(),
+    ])
+      .then(([c, w, s]) => {
+        if (!cancelled) {
+          setClient(c || null);
+          setWorkers(w || []);
+          setSuppliers(s || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClient(null);
+          setWorkers([]);
+          setSuppliers([]);
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedClient, clientsVersion]);
+
+  const clientFY = useMemo(() => {
+    if (!client) return null;
+    return {
+      ...client,
+      txs: (client.txs || []).filter((t) => getFiscalYear(t?.date) === activeFY),
+    };
+  }, [client, activeFY]);
+
+  const totals = useMemo(() => {
+    if (!clientFY) return { income: 0, expense: 0, profit: 0 };
+    const txs = clientFY.txs || [];
+    const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+    const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+    return { income, expense, profit: income - expense };
+  }, [clientFY]);
 
   const getWorkerName = (id) => workers.find((w) => w.id === id)?.name || "غير محدد";
   const getSupplierName = (id) => suppliers.find((s) => s.id === id)?.name || "غير محدد";
 
-  if (!activeClient || !activeClientFY) return null;
+  if (!selectedClient) return null;
+  if (loading) {
+    return (
+      <View style={styles.clientDetail}>
+        <Text style={styles.loadingText}>جاري التحميل...</Text>
+      </View>
+    );
+  }
+  if (!client || !clientFY) return null;
 
-  const t = clientTotals(activeClientFY);
-  const s = STATUS_LABELS[activeClient.status];
+  const s = STATUS_LABELS[client.status];
+  const t = totals;
 
   return (
     <View style={styles.clientDetail}>
@@ -57,10 +95,10 @@ export default function ClientDetail() {
       </View>
       <View style={styles.clientDetailHeaderStack}>
         <Text style={styles.clientDetailName} numberOfLines={2}>
-          {activeClient.name}
+          {client.name}
         </Text>
         <Text style={styles.clientDetailMeta}>
-          {activeClient.project} — السنة المالية {activeFY}
+          {client.project} — السنة المالية {activeFY}
         </Text>
         <View style={styles.clientDetailHeaderBtnRow}>
           <TouchableOpacity
@@ -69,13 +107,13 @@ export default function ClientDetail() {
               styles.clientDetailHeaderBtn,
               { backgroundColor: s.bg, borderColor: (s.color || "#94a3b8") + "40" },
             ]}
-            onPress={() => toggleStatus(activeClient.id)}
+            onPress={() => toggleStatus(client.id)}
           >
             <Text style={[styles.statusBtnText, { color: s.color }]}>{s.label}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.deleteBtn, styles.clientDetailHeaderBtn]}
-            onPress={() => deleteClient(activeClient.id)}
+            onPress={() => deleteClient(client.id)}
           >
             <Text style={styles.deleteBtnText}>حذف العميل</Text>
           </TouchableOpacity>
@@ -105,27 +143,27 @@ export default function ClientDetail() {
       <View style={styles.clientDetailActions}>
         <TouchableOpacity
           style={[styles.btn, styles.btnIncome, { flex: 1 }]}
-          onPress={() => openClientTx(activeClient.id, "income")}
+          onPress={() => openClientTx(client.id, "income")}
         >
           <Text style={styles.btnText}>+ دفعة مستلمة 📈</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.btn, styles.btnExpense, { flex: 1 }]}
-          onPress={() => openClientTx(activeClient.id, "expense")}
+          onPress={() => openClientTx(client.id, "expense")}
         >
           <Text style={styles.btnText}>+ مصروف على العميل 🔨</Text>
         </TouchableOpacity>
       </View>
 
       <View>
-        {activeClientFY.txs.length === 0 ? (
+        {clientFY.txs.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>📭</Text>
             <Text style={styles.emptyText}>لا توجد معاملات في {activeFY}</Text>
           </View>
         ) : (
           <View style={styles.txList}>
-            {[...activeClientFY.txs].reverse().map((tx) => (
+            {[...clientFY.txs].reverse().map((tx) => (
               <View
                 key={tx.id}
                 style={[
@@ -175,11 +213,11 @@ export default function ClientDetail() {
                   <View style={styles.txItemButtons}>
                     <TouchableOpacity
                       style={styles.txEditBtn}
-                      onPress={() => openClientTx(activeClient.id, tx.type, tx)}
+                      onPress={() => openClientTx(client.id, tx.type, tx)}
                     >
                       <Text style={styles.txEditBtnText}>تعديل</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.txDeleteBtn} onPress={() => deleteClientTx(activeClient.id, tx.id)}>
+                    <TouchableOpacity style={styles.txDeleteBtn} onPress={() => deleteClientTx(client.id, tx.id)}>
                       <Text style={styles.txDeleteBtnText}>حذف</Text>
                     </TouchableOpacity>
                   </View>

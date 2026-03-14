@@ -3,9 +3,10 @@ import { StatusBar } from "expo-status-bar";
 import { View, Text, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useState, useEffect, useMemo } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
+import { getClients, getGeneralTxs } from "./utils/db";
 import { useAppData } from "./hooks/useAppData";
-import { useScreenData } from "./hooks/useScreenData";
 import Header from "./components/Header";
 import HeaderActions from "./components/HeaderActions";
 import Drawer from "./components/Drawer";
@@ -39,19 +40,30 @@ function AppContent() {
     handleFYChange,
     clientsVersion,
     generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
     customFYs,
     dataLoadingCount,
   } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
-  );
-  const { allFYs } = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
+  const [clients, setClients] = useState([]);
+  const [generalTxs, setGeneralTxs] = useState([]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    Promise.all([getClients(), getGeneralTxs()])
+      .then(([c, g]) => {
+        if (!cancelled) {
+          setClients(c || []);
+          setGeneralTxs(g || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setClients([]);
+        if (!cancelled) setGeneralTxs([]);
+      });
+    return () => { cancelled = true; };
+  }, [loaded, clientsVersion, generalTxsVersion]);
+
+  const { allFYs } = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
 
   const systemBarColor = "#f0f0f0";
 

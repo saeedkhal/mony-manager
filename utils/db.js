@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { getCurrentFiscalYear } from "../utils/helpers";
 
 const IS_WEB = Platform.OS === "web";
 const DB_NAME = "mall_v4.db";
@@ -122,7 +123,68 @@ async function initSchema(database) {
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT
     );
+    CREATE TABLE IF NOT EXISTS fiscal_years (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL UNIQUE,
+      is_active INTEGER DEFAULT 0
+    );
   `);
+}
+
+/** Get the active fiscal year label from fiscal_years table. On web uses AsyncStorage activeFY. If none set, returns current FY and ensures a row exists. */
+export async function getActiveFiscalYear() {
+  try {
+    const database = await getDb();
+    if (!database) {
+      const state = await getWebState();
+      return (state && state.activeFY) ? state.activeFY : getCurrentFiscalYear();
+    }
+    const rows = await database.getAllAsync("SELECT label FROM fiscal_years WHERE is_active = 1 LIMIT 1");
+    if (rows.length > 0) return rows[0].label;
+    const current = getCurrentFiscalYear();
+    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", current);
+    await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", current);
+    return current;
+  } catch (e) {
+    console.warn("DB getActiveFiscalYear error:", e?.message || e);
+    return getCurrentFiscalYear();
+  }
+}
+
+/** Get all fiscal year labels from fiscal_years table, sorted descending. Ensures current year exists. On web returns [activeFY]. */
+export async function getFiscalYears() {
+  try {
+    const database = await getDb();
+    if (!database) {
+      const state = await getWebState();
+      const fy = (state && state.activeFY) ? state.activeFY : getCurrentFiscalYear();
+      return [fy];
+    }
+    const current = getCurrentFiscalYear();
+    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", current);
+    const rows = await database.getAllAsync("SELECT label FROM fiscal_years ORDER BY label DESC");
+    return rows.map((r) => r.label);
+  } catch (e) {
+    console.warn("DB getFiscalYears error:", e?.message || e);
+    return [getCurrentFiscalYear()];
+  }
+}
+
+/** Set the active fiscal year in fiscal_years table. On web updates AsyncStorage. */
+export async function setActiveFiscalYear(label) {
+  try {
+    const database = await getDb();
+    if (!database) {
+      const state = await getWebState();
+      if (state) await setWebState({ ...state, activeFY: label });
+      return;
+    }
+    await database.runAsync("UPDATE fiscal_years SET is_active = 0");
+    await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", label);
+    await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", label);
+  } catch (e) {
+    console.warn("DB setActiveFiscalYear error:", e?.message || e);
+  }
 }
 
 function rowToClient(c, txRows) {

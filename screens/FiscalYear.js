@@ -1,33 +1,29 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { useAppData } from "../hooks/useAppData";
-import { useScreenData } from "../hooks/useScreenData";
+import { getFiscalYears } from "../utils/db";
 import { getFiscalYearLabel } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function FiscalYear() {
   const {
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
     loaded,
     activeFY,
     customFYs,
-    setActiveFY,
     setModal,
     handleFYChange,
     persistSettings,
   } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
-  );
-  const { allFYs } = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
+  const [allFYs, setAllFYs] = useState([]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    getFiscalYears()
+      .then((list) => { if (!cancelled && list?.length) setAllFYs(list); })
+      .catch(() => { if (!cancelled) setAllFYs([]); });
+    return () => { cancelled = true; };
+  }, [loaded]);
 
   const setActive = (fy) => {
     handleFYChange(fy);

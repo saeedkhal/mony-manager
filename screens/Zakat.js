@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput } from "react-native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
-import { useScreenData } from "../hooks/useScreenData";
+import { getClients, getGeneralTxs } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -13,8 +13,6 @@ export default function Zakat() {
   const {
     clientsVersion,
     generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
     loaded,
     activeFY,
     customFYs,
@@ -22,15 +20,34 @@ export default function Zakat() {
     setNissabPrice,
     persistSettings,
   } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
+  const [clients, setClients] = useState([]);
+  const [generalTxs, setGeneralTxs] = useState([]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    Promise.all([getClients(), getGeneralTxs()])
+      .then(([c, g]) => {
+        if (!cancelled) {
+          setClients(c || []);
+          setGeneralTxs(g || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setClients([]);
+        if (!cancelled) setGeneralTxs([]);
+      });
+    return () => { cancelled = true; };
+  }, [loaded, clientsVersion, generalTxsVersion]);
+
+  const { totalIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
+    clients,
+    generalTxs,
+    [],
+    [],
+    activeFY,
+    customFYs
   );
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
-  const { totalIncome, totalClientExp, totalGenExp, netProfit } = appData;
 
   const zakatBase = netProfit > 0 ? netProfit : 0;
   const zakatAmount = zakatBase * ZAKAT_RATE;

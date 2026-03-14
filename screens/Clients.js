@@ -1,35 +1,29 @@
-import React, { useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { useAppData } from "../hooks/useAppData";
-import { useScreenData } from "../hooks/useScreenData";
+import { getClients } from "../utils/db";
 import { STATUS_LABELS } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
 
 export default function Clients() {
-  const {
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded,
-    activeFY,
-    customFYs,
-    selectedClient,
-    setSelectedClient,
-  } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
-  );
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
-  const { clientTotals } = appData;
-  const clientsToShow = useMemo(
+  const { clientsVersion, loaded, activeFY, selectedClient, setSelectedClient } = useApp();
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    setLoading(true);
+    getClients()
+      .then((list) => { if (!cancelled) setClients(list || []); })
+      .catch(() => { if (!cancelled) setClients([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [loaded, clientsVersion]);
+
+  const clientsWithYearTxs = useMemo(
     () =>
       (clients || []).map((c) => ({
         ...c,
@@ -37,6 +31,7 @@ export default function Clients() {
       })),
     [clients, activeFY]
   );
+
   const totalsForYear = (c) => {
     const txs = (c.txs || []).filter((t) => getFiscalYear(t?.date) === activeFY);
     const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
@@ -44,8 +39,14 @@ export default function Clients() {
     return { income, expense, profit: income - expense };
   };
 
-  if (selectedClient) {
-    return <ClientDetail />;
+  if (selectedClient) return <ClientDetail />;
+
+  if (loading) {
+    return (
+      <View style={styles.clientsView}>
+        <Text style={styles.loadingText}>جاري التحميل...</Text>
+      </View>
+    );
   }
 
   return (
@@ -61,7 +62,7 @@ export default function Clients() {
             جميع العملاء — أرقام السنة المالية {activeFY}
           </Text>
           <View style={styles.clientsGrid}>
-            {clientsToShow.map((c) => {
+            {clientsWithYearTxs.map((c) => {
               const t = totalsForYear(c);
               const s = STATUS_LABELS[c.status];
               return (

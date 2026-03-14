@@ -1,32 +1,28 @@
-import React from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { useAppData } from "../hooks/useAppData";
-import { useScreenData } from "../hooks/useScreenData";
+import { getGeneralTxs } from "../utils/db";
 import { CURRENCY, GENERAL_EXPENSE_CATS } from "../constants";
-import { fmt } from "../utils/helpers";
+import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function General() {
-  const {
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded,
-    activeFY,
-    customFYs,
-    deleteGeneralTx,
-  } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
+  const { generalTxsVersion, loaded, activeFY, deleteGeneralTx } = useApp();
+  const [generalTxs, setGeneralTxs] = useState([]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    getGeneralTxs()
+      .then((g) => { if (!cancelled) setGeneralTxs(g || []); })
+      .catch(() => { if (!cancelled) setGeneralTxs([]); });
+    return () => { cancelled = true; };
+  }, [loaded, generalTxsVersion]);
+
+  const fyGeneralTxs = useMemo(
+    () => (generalTxs || []).filter((t) => getFiscalYear(t.date) === activeFY),
+    [generalTxs, activeFY]
   );
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
-  const { fyGeneralTxs } = appData;
 
   return (
     <View style={styles.generalView}>

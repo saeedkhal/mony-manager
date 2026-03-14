@@ -1,38 +1,79 @@
-import React from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { useAppData } from "../hooks/useAppData";
-import { useScreenData } from "../hooks/useScreenData";
+import { getSuppliers, getClients } from "../utils/db";
 import { CURRENCY } from "../constants";
-import { fmt } from "../utils/helpers";
+import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 
 export default function SupplierDetail() {
   const {
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
     suppliersVersion,
+    clientsVersion,
     loaded,
     activeFY,
-    customFYs,
     selectedSupplier,
     setSelectedSupplier,
     setForm,
     setModal,
     deleteClientTx,
   } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
-  );
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
-  const { supplierStats } = appData;
-  const activeSupplier = supplierStats.find((s) => s.id === selectedSupplier);
+  const [suppliers, setSuppliers] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([getSuppliers(), getClients()])
+      .then(([s, c]) => {
+        if (!cancelled) {
+          setSuppliers(s || []);
+          setClients(c || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSuppliers([]);
+        if (!cancelled) setClients([]);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [loaded, suppliersVersion, clientsVersion]);
+
+  const supplierStats = useMemo(() => {
+    return (suppliers || [])
+      .map((s) => {
+        const matchingTxs = (clients || []).flatMap((c) =>
+          (c.txs || [])
+            .filter(
+              (t) =>
+                getFiscalYear(t.date) === activeFY &&
+                t.type === "expense" &&
+                t.supplierId === s.id
+            )
+            .map((t) => ({ ...t, clientId: c.id, clientName: c.name }))
+        );
+        const total = matchingTxs.reduce((sum, t) => sum + t.amount, 0);
+        const count = matchingTxs.length;
+        return { ...s, total, count, txs: matchingTxs };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [suppliers, clients, activeFY]);
+
+  const activeSupplier = useMemo(
+    () => (selectedSupplier ? supplierStats.find((s) => s.id === selectedSupplier) : null),
+    [supplierStats, selectedSupplier]
+  );
+
+  if (!selectedSupplier) return null;
+  if (loading) {
+    return (
+      <View style={styles.supplierDetail}>
+        <Text style={styles.loadingText}>جاري التحميل...</Text>
+      </View>
+    );
+  }
   if (!activeSupplier) return null;
 
   return (

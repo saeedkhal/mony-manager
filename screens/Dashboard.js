@@ -1,9 +1,9 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { BarChart } from "react-native-chart-kit";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
-import { useScreenData } from "../hooks/useScreenData";
+import { getClients, getGeneralTxs } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles, { SCREEN_WIDTH } from "../styles/AppStyles";
@@ -26,22 +26,33 @@ export default function Dashboard() {
   const {
     clientsVersion,
     generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
     loaded,
     activeFY,
     customFYs,
     setSelectedClient,
     setTab,
   } = useApp();
-  const { clients, generalTxs, workers, suppliers } = useScreenData(
-    clientsVersion,
-    generalTxsVersion,
-    workersVersion,
-    suppliersVersion,
-    loaded
-  );
-  const appData = useAppData(clients, generalTxs, workers, suppliers, activeFY, customFYs);
+  const [clients, setClients] = useState([]);
+  const [generalTxs, setGeneralTxs] = useState([]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    Promise.all([getClients(), getGeneralTxs()])
+      .then(([c, g]) => {
+        if (!cancelled) {
+          setClients(c || []);
+          setGeneralTxs(g || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setClients([]);
+        if (!cancelled) setGeneralTxs([]);
+      });
+    return () => { cancelled = true; };
+  }, [loaded, clientsVersion, generalTxsVersion]);
+
+  const appData = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
   const {
     fyClients,
     fyGeneralTxs,
