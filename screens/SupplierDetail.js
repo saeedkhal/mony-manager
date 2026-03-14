@@ -5,6 +5,7 @@ import { getSuppliers, getClients } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }) {
   const { loaded, activeFY, setForm, setModal, deleteClientTx } = useApp();
@@ -59,15 +60,18 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
   if (!selectedSupplier) return null;
   if (loading) {
     return (
-      <View style={styles.supplierDetail}>
-        <Text style={styles.loadingText}>جاري التحميل...</Text>
-      </View>
+      <ScreenLayout>
+        <View style={styles.supplierDetail}>
+          <Text style={styles.loadingText}>جاري التحميل...</Text>
+        </View>
+      </ScreenLayout>
     );
   }
   if (!activeSupplier) return null;
 
   return (
-    <View style={styles.supplierDetail}>
+    <ScreenLayout>
+      <View style={styles.supplierDetail}>
       <View style={styles.clientDetailBackRow}>
         <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedSupplier(null)}>
           <Text style={styles.backBtnText}>←</Text>
@@ -188,6 +192,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
           ))}
         </View>
       )}
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

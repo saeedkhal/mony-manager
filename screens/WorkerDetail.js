@@ -5,6 +5,7 @@ import { getWorkers, getClients } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
   const { loaded, activeFY, setForm, setModal, deleteClientTx } = useApp();
@@ -59,15 +60,18 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
   if (!selectedWorker) return null;
   if (loading) {
     return (
-      <View style={styles.workerDetail}>
-        <Text style={styles.loadingText}>جاري التحميل...</Text>
-      </View>
+      <ScreenLayout>
+        <View style={styles.workerDetail}>
+          <Text style={styles.loadingText}>جاري التحميل...</Text>
+        </View>
+      </ScreenLayout>
     );
   }
   if (!activeWorker) return null;
 
   return (
-    <View style={styles.workerDetail}>
+    <ScreenLayout>
+      <View style={styles.workerDetail}>
       <View style={styles.clientDetailBackRow}>
         <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedWorker(null)}>
           <Text style={styles.backBtnText}>←</Text>
@@ -181,6 +185,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
           ))}
         </View>
       )}
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

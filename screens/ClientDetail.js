@@ -5,6 +5,7 @@ import { getClientWithTxs, getWorkers, getSuppliers } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
 import { getFiscalYear, fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
   const { activeFY, openClientTx, deleteClientTx, deleteClient, toggleStatus } = useApp();
@@ -66,9 +67,11 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   if (!selectedClient) return null;
   if (loading) {
     return (
-      <View style={styles.clientDetail}>
-        <Text style={styles.loadingText}>جاري التحميل...</Text>
-      </View>
+      <ScreenLayout>
+        <View style={styles.clientDetail}>
+          <Text style={styles.loadingText}>جاري التحميل...</Text>
+        </View>
+      </ScreenLayout>
     );
   }
   if (!client || !clientFY) return null;
@@ -77,7 +80,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const t = totals;
 
   return (
-    <View style={styles.clientDetail}>
+    <ScreenLayout>
+      <View style={styles.clientDetail}>
       <View style={styles.clientDetailBackRow}>
         <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedClient(null)}>
           <Text style={styles.backBtnText}>←</Text>
@@ -221,6 +225,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
           </View>
         )}
       </View>
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

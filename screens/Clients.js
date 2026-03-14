@@ -6,6 +6,7 @@ import { STATUS_LABELS } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function Clients() {
   const { loaded, activeFY } = useApp();
@@ -59,7 +60,8 @@ export default function Clients() {
   }
 
   return (
-    <View style={styles.clientsView}>
+    <ScreenLayout>
+      <View style={styles.clientsView}>
       {clients.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>👥</Text>
@@ -118,6 +120,7 @@ export default function Clients() {
           </View>
         </>
       )}
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

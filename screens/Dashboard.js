@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { BarChart } from "react-native-chart-kit";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
@@ -7,6 +8,7 @@ import { getClients, getGeneralTxs } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles, { SCREEN_WIDTH } from "../styles/AppStyles";
+import ScreenLayout from "../components/ScreenLayout";
 
 const chartConfig = {
   backgroundColor: "#1e1b4b",
@@ -23,12 +25,14 @@ const chartConfig = {
 };
 
 export default function Dashboard() {
-  const { tab, loaded, activeFY, customFYs, setTab } = useApp();
+  const { loaded, activeFY, customFYs } = useApp();
+  const isFocused = useIsFocused();
+  const navigation = useNavigation();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded || tab !== "dashboard") return;
+    if (!loaded || !isFocused) return;
     let cancelled = false;
     Promise.all([getClients(), getGeneralTxs()])
       .then(([c, g]) => {
@@ -42,7 +46,7 @@ export default function Dashboard() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, tab]);
+  }, [loaded, isFocused]);
 
   const appData = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
   const {
@@ -93,7 +97,8 @@ export default function Dashboard() {
   ];
 
   return (
-    <View style={styles.dashboard}>
+    <ScreenLayout>
+      <View style={styles.dashboard}>
       <View style={styles.statsGrid}>
         {stats.map((c) => (
           <View key={c.label} style={[styles.statCard, { backgroundColor: c.bg, borderColor: c.color + "30" }]}>
@@ -150,7 +155,7 @@ export default function Dashboard() {
                 <TouchableOpacity
                   key={c.id}
                   style={styles.clientSummaryItem}
-                  onPress={() => setTab("clients")}
+                  onPress={() => navigation.navigate("clients")}
                 >
                   <View style={styles.clientSummaryInfo}>
                     <Text style={styles.clientSummaryName}>{c.name}</Text>
@@ -178,6 +183,7 @@ export default function Dashboard() {
           <Text style={styles.emptyText}>لا توجد بيانات في السنة المالية {activeFY}</Text>
         </View>
       )}
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

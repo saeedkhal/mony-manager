@@ -27,7 +27,6 @@ export function AppProvider({ children }) {
   const [activeFY, setActiveFY] = useState(getCurrentFiscalYear());
   const [customFYs, setCustomFYs] = useState([]);
   const [nissabPrice, setNissabPrice] = useState(85000);
-  const [tab, setTab] = useState("dashboard");
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [showFYPicker, setShowFYPicker] = useState(false);
@@ -197,7 +196,6 @@ export function AppProvider({ children }) {
     try {
       await dbDeleteClient(cid);
     } catch (_) {}
-    setTab("clients");
   };
 
   const toggleStatus = async (cid) => {
@@ -269,8 +267,6 @@ export function AppProvider({ children }) {
 
   const value = {
     loaded,
-    tab,
-    setTab,
     modal,
     setModal,
     form,

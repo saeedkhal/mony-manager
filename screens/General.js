@@ -1,23 +1,26 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { getGeneralTxs } from "../utils/db";
 import { CURRENCY, GENERAL_EXPENSE_CATS } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function General() {
-  const { tab, loaded, activeFY, deleteGeneralTx } = useApp();
+  const { loaded, activeFY, deleteGeneralTx } = useApp();
+  const isFocused = useIsFocused();
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded || tab !== "general") return;
+    if (!loaded || !isFocused) return;
     let cancelled = false;
     getGeneralTxs()
       .then((g) => { if (!cancelled) setGeneralTxs(g || []); })
       .catch(() => { if (!cancelled) setGeneralTxs([]); });
     return () => { cancelled = true; };
-  }, [loaded, tab]);
+  }, [loaded, isFocused]);
 
   const fyGeneralTxs = useMemo(
     () => (generalTxs || []).filter((t) => getFiscalYear(t.date) === activeFY),
@@ -25,8 +28,9 @@ export default function General() {
   );
 
   return (
-    <View style={styles.generalView}>
-      <View style={styles.generalStatsGrid}>
+    <ScreenLayout>
+      <View style={styles.generalView}>
+        <View style={styles.generalStatsGrid}>
         {GENERAL_EXPENSE_CATS.map((cat) => {
           const total = fyGeneralTxs
             .filter((t) => t.cat === cat)
@@ -51,8 +55,8 @@ export default function General() {
             </View>
           ) : null;
         })}
-      </View>
-      {fyGeneralTxs.length === 0 ? (
+        </View>
+        {fyGeneralTxs.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>🏢</Text>
           <Text style={styles.emptyText}>
@@ -85,7 +89,8 @@ export default function General() {
             </View>
           ))}
         </View>
-      )}
-    </View>
+        )}
+      </View>
+    </ScreenLayout>
   );
 }

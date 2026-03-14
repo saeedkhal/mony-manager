@@ -6,6 +6,7 @@ import { CURRENCY } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import SupplierDetail from "./SupplierDetail";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function Suppliers() {
   const { loaded, activeFY, setForm, setModal, deleteSupplier } = useApp();
@@ -71,7 +72,8 @@ export default function Suppliers() {
   }
 
   return (
-    <View style={styles.suppliersView}>
+    <ScreenLayout>
+      <View style={styles.suppliersView}>
       {suppliers.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>🏭</Text>
@@ -132,6 +134,7 @@ export default function Suppliers() {
           ))}
         </View>
       )}
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

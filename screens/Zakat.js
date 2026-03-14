@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TextInput } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
 import { getClients, getGeneralTxs } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
+import ScreenLayout from "../components/ScreenLayout";
 
 const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
   const {
-    tab,
     loaded,
     activeFY,
     customFYs,
@@ -19,11 +20,12 @@ export default function Zakat() {
     setNissabPrice,
     persistSettings,
   } = useApp();
+  const isFocused = useIsFocused();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded || tab !== "zakat") return;
+    if (!loaded || !isFocused) return;
     let cancelled = false;
     Promise.all([getClients(), getGeneralTxs()])
       .then(([c, g]) => {
@@ -37,7 +39,7 @@ export default function Zakat() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, tab]);
+  }, [loaded, isFocused]);
 
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
     clients,
@@ -53,7 +55,8 @@ export default function Zakat() {
   const zakatDue = zakatBase >= nissabPrice;
 
   return (
-    <View style={styles.zakatView}>
+    <ScreenLayout>
+      <View style={styles.zakatView}>
       <View style={styles.zakatHeader}>
         <Text style={styles.zakatIcon}>🌙</Text>
         <Text style={styles.zakatTitle}>حساب زكاة المال</Text>
@@ -186,6 +189,7 @@ export default function Zakat() {
           بدقة حسب ظروفك.
         </Text>
       </View>
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

@@ -1,16 +1,17 @@
 import { I18nManager } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { View, Text, ScrollView } from "react-native";
+import { View, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { NavigationContainer } from "@react-navigation/native";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
 import { getClients, getGeneralTxs } from "./utils/db";
 import { useAppData } from "./hooks/useAppData";
 import Header from "./components/Header";
 import HeaderActions from "./components/HeaderActions";
 import Drawer from "./components/Drawer";
-import MainContent from "./screens/MainContent";
+import RootNavigator from "./navigation/RootNavigator";
 import Modals from "./components/Modals";
 import { NAV_ITEMS } from "./constants";
 import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
@@ -22,10 +23,10 @@ I18nManager.allowRTL(true);
 
 function AppContent() {
   const insets = useSafeAreaInsets();
+  const navigationRef = useRef(null);
+  const [currentRoute, setCurrentRoute] = useState("dashboard");
   const {
     loaded,
-    tab,
-    setTab,
     showDrawer,
     setShowDrawer,
     closeDrawer,
@@ -58,6 +59,16 @@ function AppContent() {
 
   const { allFYs } = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
 
+  const onNavStateChange = (state) => {
+    if (!state) return;
+    const route = state.routes[state.index];
+    if (route?.name) setCurrentRoute(route.name);
+  };
+
+  const navigateTo = (name) => {
+    navigationRef.current?.navigate(name);
+  };
+
   const systemBarColor = "#f0f0f0";
 
   if (!loaded) {
@@ -88,23 +99,26 @@ function AppContent() {
           onFYChange={handleFYChange}
           getCurrentFiscalYear={getCurrentFiscalYear}
           getFiscalYearLabel={getFiscalYearLabel}
-          headerActions={<HeaderActions />}
+          headerActions={<HeaderActions currentRoute={currentRoute} />}
         />
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={{ paddingBottom: 24 + insets.bottom }}
-          showsVerticalScrollIndicator={false}
+        <NavigationContainer
+          ref={navigationRef}
+          onStateChange={onNavStateChange}
+          style={{ flex: 1 }}
         >
-          <MainContent />
-        </ScrollView>
+          <RootNavigator />
+        </NavigationContainer>
       </View>
       <View style={{ height: insets.bottom, backgroundColor: systemBarColor }} />
       <Drawer
         visible={showDrawer}
         onClose={closeDrawer}
         navItems={NAV_ITEMS}
-        activeTab={tab}
-        onTabChange={setTab}
+        activeTab={currentRoute}
+        onTabChange={(k) => {
+          navigateTo(k);
+          closeDrawer();
+        }}
         drawerAnimation={drawerAnimation}
         safeAreaBottom={insets.bottom}
       />

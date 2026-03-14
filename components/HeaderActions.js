@@ -4,12 +4,9 @@ import { useApp } from "../context/AppContext";
 import { GENERAL_EXPENSE_CATS } from "../constants";
 import styles from "../styles/AppStyles";
 
-export default function HeaderActions() {
-  const {
-    tab,
-    setModal,
-    setForm,
-  } = useApp();
+export default function HeaderActions({ currentRoute }) {
+  const { setModal, setForm } = useApp();
+  const tab = currentRoute ?? "dashboard";
 
   return (
     <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>

@@ -6,6 +6,7 @@ import { CURRENCY } from "../constants";
 import { fmt, getFiscalYear } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import WorkerDetail from "./WorkerDetail";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function Workers() {
   const { loaded, activeFY, setForm, setModal, deleteWorker } = useApp();
@@ -64,7 +65,8 @@ export default function Workers() {
   }
 
   return (
-    <View style={styles.workersView}>
+    <ScreenLayout>
+      <View style={styles.workersView}>
       {workers.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>👷</Text>
@@ -117,6 +119,7 @@ export default function Workers() {
           ))}
         </View>
       )}
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }

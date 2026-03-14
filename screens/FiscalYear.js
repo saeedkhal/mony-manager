@@ -4,6 +4,7 @@ import { useApp } from "../context/AppContext";
 import { getFiscalYears } from "../utils/db";
 import { getFiscalYearLabel } from "../utils/helpers";
 import styles from "../styles/AppStyles";
+import ScreenLayout from "../components/ScreenLayout";
 
 export default function FiscalYear() {
   const {
@@ -35,7 +36,8 @@ export default function FiscalYear() {
   };
 
   return (
-    <View style={styles.fiscalYearView}>
+    <ScreenLayout>
+      <View style={styles.fiscalYearView}>
       <Text style={styles.fiscalYearTitle}>📅 السنة المالية</Text>
       <Text style={styles.sectionSubtitle}>اختر السنة المالية المعتمدة للعرض والإدخال</Text>
 
@@ -81,6 +83,7 @@ export default function FiscalYear() {
       >
         <Text style={styles.btnText}>+ إضافة سنة مالية</Text>
       </TouchableOpacity>
-    </View>
+      </View>
+    </ScreenLayout>
   );
 }
