@@ -10,7 +10,6 @@ import WorkerDetail from "./WorkerDetail";
 export default function Workers() {
   const {
     workersVersion,
-    clientsVersion,
     loaded,
     activeFY,
     selectedWorker,
@@ -40,7 +39,7 @@ export default function Workers() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, workersVersion, clientsVersion]);
+  }, [loaded, workersVersion]);
 
   const workerStats = useMemo(() => {
     return (workers || [])

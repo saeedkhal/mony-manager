@@ -10,7 +10,6 @@ import SupplierDetail from "./SupplierDetail";
 export default function Suppliers() {
   const {
     suppliersVersion,
-    clientsVersion,
     loaded,
     activeFY,
     selectedSupplier,
@@ -40,7 +39,7 @@ export default function Suppliers() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, suppliersVersion, clientsVersion]);
+  }, [loaded, suppliersVersion]);
 
   const supplierStats = useMemo(() => {
     return (suppliers || [])

@@ -24,7 +24,6 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [clientsVersion, setClientsVersion] = useState(0);
   const [generalTxsVersion, setGeneralTxsVersion] = useState(0);
   const [workersVersion, setWorkersVersion] = useState(0);
   const [suppliersVersion, setSuppliersVersion] = useState(0);
@@ -61,7 +60,6 @@ export function AppProvider({ children }) {
     loadData();
   }, []);
 
-  const bumpClients = () => setClientsVersion((v) => v + 1);
   const bumpGeneralTxs = () => setGeneralTxsVersion((v) => v + 1);
   const bumpWorkers = () => setWorkersVersion((v) => v + 1);
   const bumpSuppliers = () => setSuppliersVersion((v) => v + 1);
@@ -98,7 +96,6 @@ export function AppProvider({ children }) {
     };
     try {
       await upsertClient(newClient);
-      bumpClients();
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -126,7 +123,6 @@ export function AppProvider({ children }) {
     }
     try {
       await upsertClient(updatedClient);
-      bumpClients();
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -207,7 +203,6 @@ export function AppProvider({ children }) {
   const deleteClientTx = async (cid, tid) => {
     try {
       await dbDeleteClientTx(cid, tid);
-      bumpClients();
     } catch (_) {}
   };
 
@@ -221,7 +216,6 @@ export function AppProvider({ children }) {
   const deleteClient = async (cid) => {
     try {
       await dbDeleteClient(cid);
-      bumpClients();
     } catch (_) {}
     setSelectedClient(null);
     setTab("clients");
@@ -233,7 +227,6 @@ export function AppProvider({ children }) {
     const updated = { ...client, status: client.status === "active" ? "done" : "active" };
     try {
       await upsertClient(updated);
-      bumpClients();
     } catch (_) {}
   };
 
@@ -301,7 +294,6 @@ export function AppProvider({ children }) {
   };
 
   const value = {
-    clientsVersion,
     generalTxsVersion,
     workersVersion,
     suppliersVersion,

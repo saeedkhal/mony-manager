@@ -11,7 +11,6 @@ const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
   const {
-    clientsVersion,
     generalTxsVersion,
     loaded,
     activeFY,
@@ -38,7 +37,7 @@ export default function Zakat() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, clientsVersion, generalTxsVersion]);
+  }, [loaded, generalTxsVersion]);
 
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
     clients,

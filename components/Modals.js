@@ -19,7 +19,6 @@ export default function Modals() {
     setForm,
     showClientPicker,
     setShowClientPicker,
-    clientsVersion,
     workersVersion,
     suppliersVersion,
     loaded,
@@ -54,7 +53,7 @@ export default function Modals() {
         if (!cancelled) setSuppliers([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, clientsVersion, workersVersion, suppliersVersion]);
+  }, [loaded, workersVersion, suppliersVersion]);
 
   const activeClient = clients.find((c) => c.id === selectedClient);
 

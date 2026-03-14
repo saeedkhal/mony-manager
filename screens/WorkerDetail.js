@@ -9,7 +9,6 @@ import styles from "../styles/AppStyles";
 export default function WorkerDetail() {
   const {
     workersVersion,
-    clientsVersion,
     loaded,
     activeFY,
     selectedWorker,
@@ -39,7 +38,7 @@ export default function WorkerDetail() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, workersVersion, clientsVersion]);
+  }, [loaded, workersVersion]);
 
   const workerStats = useMemo(() => {
     return (workers || [])

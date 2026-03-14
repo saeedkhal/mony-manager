@@ -8,7 +8,6 @@ import styles from "../styles/AppStyles";
 
 export default function ClientDetail() {
   const {
-    clientsVersion,
     activeFY,
     selectedClient,
     setSelectedClient,
@@ -51,7 +50,7 @@ export default function ClientDetail() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedClient, clientsVersion]);
+  }, [selectedClient]);
 
   const clientFY = useMemo(() => {
     if (!client) return null;

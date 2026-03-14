@@ -8,7 +8,7 @@ import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
 
 export default function Clients() {
-  const { clientsVersion, loaded, activeFY, selectedClient, setSelectedClient } = useApp();
+  const { loaded, activeFY, selectedClient, setSelectedClient } = useApp();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -21,7 +21,7 @@ export default function Clients() {
       .catch(() => { if (!cancelled) setClients([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, clientsVersion]);
+  }, [loaded]);
 
   const clientsWithYearTxs = useMemo(
     () =>

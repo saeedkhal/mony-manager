@@ -38,7 +38,6 @@ function AppContent() {
     showFYPicker,
     setShowFYPicker,
     handleFYChange,
-    clientsVersion,
     generalTxsVersion,
     customFYs,
     dataLoadingCount,
@@ -61,7 +60,7 @@ function AppContent() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, clientsVersion, generalTxsVersion]);
+  }, [loaded, generalTxsVersion]);
 
   const { allFYs } = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
 

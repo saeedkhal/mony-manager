@@ -9,7 +9,6 @@ import styles from "../styles/AppStyles";
 export default function SupplierDetail() {
   const {
     suppliersVersion,
-    clientsVersion,
     loaded,
     activeFY,
     selectedSupplier,
@@ -39,7 +38,7 @@ export default function SupplierDetail() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, suppliersVersion, clientsVersion]);
+  }, [loaded, suppliersVersion]);
 
   const supplierStats = useMemo(() => {
     return (suppliers || [])

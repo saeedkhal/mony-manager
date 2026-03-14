@@ -24,7 +24,6 @@ const chartConfig = {
 
 export default function Dashboard() {
   const {
-    clientsVersion,
     generalTxsVersion,
     loaded,
     activeFY,
@@ -50,7 +49,7 @@ export default function Dashboard() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, clientsVersion, generalTxsVersion]);
+  }, [loaded, generalTxsVersion]);
 
   const appData = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
   const {
