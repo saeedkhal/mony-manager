@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getClientWithTxs, getWorkers, getSuppliers } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
-import { getFiscalYear, fmt } from "../utils/helpers";
+import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
@@ -45,21 +45,13 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     return () => { cancelled = true; };
   }, [selectedClient]);
 
-  const clientFY = useMemo(() => {
-    if (!client) return null;
-    return {
-      ...client,
-      txs: (client.txs || []).filter((t) => getFiscalYear(t?.date) === activeFY),
-    };
-  }, [client, activeFY]);
-
   const totals = useMemo(() => {
-    if (!clientFY) return { income: 0, expense: 0, profit: 0 };
-    const txs = clientFY.txs || [];
+    if (!client) return { income: 0, expense: 0, profit: 0 };
+    const txs = client.txs || [];
     const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
     const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
     return { income, expense, profit: income - expense };
-  }, [clientFY]);
+  }, [client]);
 
   const getWorkerName = (id) => workers.find((w) => w.id === id)?.name || "غير محدد";
   const getSupplierName = (id) => suppliers.find((s) => s.id === id)?.name || "غير محدد";
@@ -74,7 +66,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </ScreenLayout>
     );
   }
-  if (!client || !clientFY) return null;
+  if (!client) return null;
 
   const s = STATUS_LABELS[client.status];
   const t = totals;
@@ -154,14 +146,14 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </View>
 
       <View>
-        {clientFY.txs.length === 0 ? (
+        {(client.txs || []).length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>📭</Text>
-            <Text style={styles.emptyText}>لا توجد معاملات في {activeFY}</Text>
+            <Text style={styles.emptyText}>لا توجد معاملات</Text>
           </View>
         ) : (
           <View style={styles.txList}>
-            {[...clientFY.txs].reverse().map((tx) => (
+            {[...(client.txs || [])].reverse().map((tx) => (
               <View
                 key={tx.id}
                 style={[
