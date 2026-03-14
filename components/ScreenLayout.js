@@ -14,11 +14,10 @@ export default function ScreenLayout({ children, contentContainerStyle }) {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[
-          styles.content,
-          { paddingBottom: 24 + insets.bottom },
+          { padding: 24, paddingBottom: 24 + insets.bottom },
           contentContainerStyle,
         ]}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={true}
       >
         {children}
       </ScrollView>
