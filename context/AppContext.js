@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+} from "react";
 import { Animated, Dimensions } from "react-native";
 import { initState } from "../utils/storage";
 import {
@@ -21,12 +27,15 @@ export function AppProvider({ children }) {
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const drawerAnimation = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
+  const drawerAnimation = useRef(
+    new Animated.Value(-SCREEN_WIDTH * 0.75),
+  ).current;
 
   useEffect(() => {
     const loadData = async () => {
       await initState();
       const s = await getSettings();
+      console.log("s", s);
       if (s) {
         setActiveFY(s.activeFY || getCurrentFiscalYear());
         setCustomFYs(s.customFYs || []);
@@ -62,6 +71,7 @@ export function AppProvider({ children }) {
   };
 
   const handleFYChange = async (fy) => {
+    console.log("fy", fy);
     setActiveFY(fy);
     try {
       await setActiveFiscalYear(fy);
@@ -71,7 +81,8 @@ export function AppProvider({ children }) {
   const persistSettings = async (partial) => {
     const next = {
       activeFY: partial.activeFY !== undefined ? partial.activeFY : activeFY,
-      customFYs: partial.customFYs !== undefined ? partial.customFYs : customFYs,
+      customFYs:
+        partial.customFYs !== undefined ? partial.customFYs : customFYs,
     };
     if (partial.activeFY !== undefined) {
       setActiveFY(next.activeFY);

@@ -17,6 +17,7 @@ export default function FiscalYear() {
   } = useApp();
   const [allFYs, setAllFYs] = useState([]);
 
+  console.log("allFYs", allFYs);
   useEffect(() => {
     if (!loaded) return;
     let cancelled = false;
