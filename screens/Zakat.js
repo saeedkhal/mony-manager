@@ -12,7 +12,7 @@ import ScreenLayout from "../components/ScreenLayout";
 const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
-  const { loaded, activeFY, customFYs } = useApp();
+  const { loaded, activeFiscalYearId, activeFiscalYearLabel } = useApp();
   const isFocused = useIsFocused();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
@@ -30,9 +30,9 @@ export default function Zakat() {
   }, [loaded]);
 
   useEffect(() => {
-    if (!loaded || !isFocused || activeFY == null) return;
+    if (!loaded || !isFocused || activeFiscalYearId == null) return;
     let cancelled = false;
-    Promise.all([getClients(), getGeneralTxs(activeFY)])
+    Promise.all([getClients(), getGeneralTxs(activeFiscalYearId)])
       .then(([c, g]) => {
         if (!cancelled) {
           setClients(c || []);
@@ -44,15 +44,15 @@ export default function Zakat() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, isFocused, activeFY]);
+  }, [loaded, isFocused, activeFiscalYearId]);
 
   const { totalIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
     clients,
     generalTxs,
     [],
     [],
-    activeFY,
-    customFYs
+    activeFiscalYearId,
+    activeFiscalYearLabel,
   );
 
   const zakatBase = netProfit > 0 ? netProfit : 0;
@@ -66,7 +66,7 @@ export default function Zakat() {
         <Text style={styles.zakatIcon}>🌙</Text>
         <Text style={styles.zakatTitle}>حساب زكاة المال</Text>
         <Text style={styles.zakatSubtitle}>
-          السنة المالية {activeFY} — نسبة الزكاة 2.5%
+          السنة المالية {activeFiscalYearLabel} — نسبة الزكاة 2.5%
         </Text>
       </View>
 

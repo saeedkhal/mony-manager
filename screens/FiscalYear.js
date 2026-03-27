@@ -9,15 +9,14 @@ import ScreenLayout from "../components/ScreenLayout";
 export default function FiscalYear() {
   const {
     loaded,
-    activeFY,
-    customFYs,
+    activeFiscalYearId,
+    customFiscalYearIds,
     setModal,
     handleFYChange,
     persistSettings,
   } = useApp();
   const [allFYs, setAllFYs] = useState([]);
 
-  console.log("allFYs", allFYs);
   useEffect(() => {
     if (!loaded) return;
     let cancelled = false;
@@ -25,65 +24,68 @@ export default function FiscalYear() {
       .then((list) => { if (!cancelled && list?.length) setAllFYs(list); })
       .catch(() => { if (!cancelled) setAllFYs([]); });
     return () => { cancelled = true; };
-  }, [loaded]);
+  }, [loaded, activeFiscalYearId]);
 
   const setActive = (fy) => {
-    handleFYChange(fy);
+    handleFYChange(fy.id, fy.label);
   };
 
-  const removeCustomFY = async (fy) => {
-    if (fy === activeFY) return;
-    await persistSettings({ customFYs: (customFYs || []).filter((f) => f !== fy) });
+  const removeCustomFY = async (fyId) => {
+    if (fyId === activeFiscalYearId) return;
+    await persistSettings({
+      customFiscalYearIds: (customFiscalYearIds || []).filter((x) => x !== fyId),
+    });
   };
 
   return (
     <ScreenLayout>
       <View style={styles.fiscalYearView}>
-      <Text style={styles.fiscalYearTitle}>📅 السنة المالية</Text>
-      <Text style={styles.sectionSubtitle}>اختر السنة المالية المعتمدة للعرض والإدخال</Text>
+        <Text style={styles.fiscalYearTitle}>📅 السنة المالية</Text>
+        <Text style={styles.sectionSubtitle}>اختر السنة المالية المعتمدة للعرض والإدخال</Text>
 
-      <View style={styles.fiscalYearList}>
-        {(allFYs || []).map((fy) => {
-          const isActive = fy === activeFY;
-          const isCustom = (customFYs || []).includes(fy);
-          return (
-            <View key={fy} style={[styles.fiscalYearItem, isActive && styles.fiscalYearItemActive]}>
-              <TouchableOpacity
-                style={styles.fiscalYearItemTouch}
-                onPress={() => setActive(fy)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.fiscalYearItemContent}>
-                  <Text style={[styles.fiscalYearItemLabel, isActive && styles.fiscalYearItemLabelActive]}>
-                    {getFiscalYearLabel(fy)}
-                  </Text>
-                  <Text style={styles.fiscalYearItemMeta}>{fy}</Text>
-                  {isActive && (
-                    <View style={styles.fiscalYearBadge}>
-                      <Text style={styles.fiscalYearBadgeText}>الحالية</Text>
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-              {isCustom && !isActive && (
+        <View style={styles.fiscalYearList}>
+          {(allFYs || []).map((fy) => {
+            const isActive = fy.id === activeFiscalYearId;
+            const isCustom = (customFiscalYearIds || []).includes(fy.id);
+            return (
+              <View key={fy.id} style={[styles.fiscalYearItem, isActive && styles.fiscalYearItemActive]}>
                 <TouchableOpacity
-                  style={styles.fiscalYearDeleteBtn}
-                  onPress={() => removeCustomFY(fy)}
+                  style={styles.fiscalYearItemTouch}
+                  onPress={() => setActive(fy)}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.deleteBtnText}>حذف</Text>
+                  <View style={styles.fiscalYearItemContent}>
+                    <Text style={[styles.fiscalYearItemLabel, isActive && styles.fiscalYearItemLabelActive]}>
+                      {getFiscalYearLabel(fy.label)}
+                    </Text>
+                    <Text style={styles.fiscalYearItemMeta}>{fy.label}</Text>
+                    <Text style={styles.fiscalYearItemMeta}>#{fy.id}</Text>
+                    {isActive && (
+                      <View style={styles.fiscalYearBadge}>
+                        <Text style={styles.fiscalYearBadgeText}>الحالية</Text>
+                      </View>
+                    )}
+                  </View>
                 </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </View>
+                {isCustom && !isActive && (
+                  <TouchableOpacity
+                    style={styles.fiscalYearDeleteBtn}
+                    onPress={() => removeCustomFY(fy.id)}
+                  >
+                    <Text style={styles.deleteBtnText}>حذف</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
+        </View>
 
-      <TouchableOpacity
-        style={[styles.btn, styles.btnPrimary, styles.fiscalYearAddBtn]}
-        onPress={() => setModal("addFY")}
-      >
-        <Text style={styles.btnText}>+ إضافة سنة مالية</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btn, styles.btnPrimary, styles.fiscalYearAddBtn]}
+          onPress={() => setModal("addFY")}
+        >
+          <Text style={styles.btnText}>+ إضافة سنة مالية</Text>
+        </TouchableOpacity>
       </View>
     </ScreenLayout>
   );

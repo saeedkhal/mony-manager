@@ -9,13 +9,13 @@ import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function Clients() {
-  const { loaded, activeFY, modal } = useApp();
+  const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal } = useApp();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
 
   useEffect(() => {
-    if (!loaded || activeFY == null) return;
+    if (!loaded || activeFiscalYearId == null) return;
     let cancelled = false;
     setLoading(true);
     getClients()
@@ -23,7 +23,7 @@ export default function Clients() {
       .catch(() => { if (!cancelled) setClients([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, activeFY, modal]);
+  }, [loaded, activeFiscalYearId, modal]);
 
   const clientsWithYearTxs = clients || [];
 
@@ -63,7 +63,7 @@ export default function Clients() {
       ) : (
         <>
           <Text style={styles.sectionSubtitle}>
-            جميع العملاء — أرقام السنة المالية {activeFY}
+            جميع العملاء — السنة المالية {activeFiscalYearLabel}
           </Text>
           <View style={styles.clientsGrid}>
             {clientsWithYearTxs.map((c) => {

@@ -9,10 +9,14 @@ import { Animated, Dimensions } from "react-native";
 import { initState } from "../utils/storage";
 import {
   getSettings,
-  setActiveFiscalYear,
-  addFiscalYearLabel,
-  removeFiscalYearLabel,
+  setSettings as dbSetSettings,
+  setActiveFiscalYearById,
+  removeFiscalYearById,
   deleteClientTx as dbDeleteClientTx,
+  getActiveFiscalYear,
+  getActiveFiscalYearId,
+  getFiscalYearRowById,
+  ensureFiscalYearLabel,
 } from "../utils/db";
 import { getCurrentFiscalYear } from "../utils/helpers";
 
@@ -20,8 +24,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [activeFY, setActiveFY] = useState(getCurrentFiscalYear());
-  const [customFYs, setCustomFYs] = useState([]);
+  const [activeFiscalYearId, setActiveFiscalYearId] = useState(null);
+  const [activeFiscalYearLabel, setActiveFiscalYearLabel] = useState(getCurrentFiscalYear());
+  const [customFiscalYearIds, setCustomFiscalYearIds] = useState([]);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [showClientPicker, setShowClientPicker] = useState(false);
@@ -35,11 +40,27 @@ export function AppProvider({ children }) {
     const loadData = async () => {
       await initState();
       const s = await getSettings();
-      console.log("s", s);
-      if (s) {
-        setActiveFY(s.activeFY || getCurrentFiscalYear());
-        setCustomFYs(s.customFYs || []);
+      setCustomFiscalYearIds(s.customFiscalYearIds || []);
+
+      await getActiveFiscalYear();
+      let id = await getActiveFiscalYearId();
+      if (s.activeFiscalYearId != null && !Number.isNaN(Number(s.activeFiscalYearId))) {
+        id = Number(s.activeFiscalYearId);
       }
+      if (id == null) {
+        const ensured = await ensureFiscalYearLabel(getCurrentFiscalYear());
+        if (ensured != null) id = ensured;
+      }
+      setActiveFiscalYearId(id);
+      const row = id != null ? await getFiscalYearRowById(id) : null;
+      const label = row?.label || (await getActiveFiscalYear()) || getCurrentFiscalYear();
+      setActiveFiscalYearLabel(label);
+      if (id != null) {
+        try {
+          await setActiveFiscalYearById(id, label);
+        } catch (_) {}
+      }
+
       setLoaded(true);
     };
     loadData();
@@ -70,36 +91,53 @@ export function AppProvider({ children }) {
     } catch (_) {}
   };
 
-  const handleFYChange = async (fy) => {
-    console.log("fy", fy);
-    setActiveFY(fy);
+  const handleFYChange = async (fiscalYearId, displayLabel = null) => {
+    if (fiscalYearId == null) return;
+    let label = displayLabel;
+    if (label == null) {
+      const row = await getFiscalYearRowById(fiscalYearId);
+      label = row?.label ?? "";
+    }
+    setActiveFiscalYearId(Number(fiscalYearId));
+    setActiveFiscalYearLabel(label || getCurrentFiscalYear());
     try {
-      await setActiveFiscalYear(fy);
+      await setActiveFiscalYearById(fiscalYearId, label);
     } catch (_) {}
   };
 
   const persistSettings = async (partial) => {
     const next = {
-      activeFY: partial.activeFY !== undefined ? partial.activeFY : activeFY,
-      customFYs:
-        partial.customFYs !== undefined ? partial.customFYs : customFYs,
+      activeFiscalYearId:
+        partial.activeFiscalYearId !== undefined
+          ? partial.activeFiscalYearId
+          : activeFiscalYearId,
+      customFiscalYearIds:
+        partial.customFiscalYearIds !== undefined
+          ? partial.customFiscalYearIds
+          : customFiscalYearIds,
     };
-    if (partial.activeFY !== undefined) {
-      setActiveFY(next.activeFY);
+    if (partial.activeFiscalYearId !== undefined) {
+      const fid = next.activeFiscalYearId;
+      setActiveFiscalYearId(fid);
+      const row = fid != null ? await getFiscalYearRowById(fid) : null;
+      setActiveFiscalYearLabel(row?.label || activeFiscalYearLabel);
+      await setActiveFiscalYearById(fid, row?.label);
+    }
+    if (partial.customFiscalYearIds !== undefined) {
+      const prevSet = new Set(customFiscalYearIds);
+      const nextSet = new Set(next.customFiscalYearIds);
+      for (const fid of prevSet) {
+        if (!nextSet.has(fid)) await removeFiscalYearById(fid);
+      }
+      setCustomFiscalYearIds(next.customFiscalYearIds);
       try {
-        await setActiveFiscalYear(next.activeFY);
+        await dbSetSettings({ customFiscalYearIds: next.customFiscalYearIds });
       } catch (_) {}
     }
-    if (partial.customFYs !== undefined) {
-      const prevSet = new Set(customFYs);
-      const nextSet = new Set(next.customFYs);
-      for (const label of nextSet) {
-        if (!prevSet.has(label)) await addFiscalYearLabel(label);
-      }
-      for (const label of prevSet) {
-        if (!nextSet.has(label)) await removeFiscalYearLabel(label);
-      }
-      setCustomFYs(next.customFYs);
+    if (partial.nissabPrice !== undefined) {
+      try {
+        await dbSetSettings({ nissabPrice: partial.nissabPrice });
+      } catch (_) {}
     }
   };
 
@@ -109,10 +147,10 @@ export function AppProvider({ children }) {
     setModal,
     form,
     setForm,
-    activeFY,
-    setActiveFY,
-    customFYs,
-    setCustomFYs,
+    activeFiscalYearId,
+    activeFiscalYearLabel,
+    customFiscalYearIds,
+    setCustomFiscalYearIds,
     showClientPicker,
     setShowClientPicker,
     showDrawer,

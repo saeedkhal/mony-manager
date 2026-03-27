@@ -8,7 +8,7 @@ import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }) {
-  const { loaded, activeFY, setForm, setModal, deleteClientTx } = useApp();
+  const { loaded, activeFiscalYearLabel, setForm, setModal, deleteClientTx } = useApp();
   const [suppliers, setSuppliers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -77,7 +77,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
         <Text style={styles.clientDetailName} numberOfLines={2}>
           🏭 {activeSupplier.name}
         </Text>
-        <Text style={styles.clientDetailMeta}>السنة المالية {activeFY}</Text>
+        <Text style={styles.clientDetailMeta}>السنة المالية {activeFiscalYearLabel}</Text>
         {activeSupplier.phone ? (
           <Text style={styles.clientDetailMeta}>📞 {activeSupplier.phone}</Text>
         ) : null}

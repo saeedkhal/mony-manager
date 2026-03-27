@@ -16,8 +16,17 @@ export const getCurrentFiscalYear = () => {
 };
 
 export const getFiscalYearLabel = (fy) => {
-  const [sy, ey] = fy.split("/").map(Number);
+  if (fy == null || String(fy).trim() === "") return "";
+  const [sy, ey] = String(fy).split("/").map(Number);
+  if (!Number.isFinite(sy) || !Number.isFinite(ey)) return String(fy);
   return `فبراير ${sy} — يناير ${ey}`;
+};
+
+/** Start calendar year of fiscal period (e.g. 2026 for "2026/2027"), for chart buckets */
+export const getStartYearFromFiscalLabel = (label) => {
+  if (label == null) return new Date().getFullYear();
+  const [sy] = String(label).split("/").map(Number);
+  return Number.isFinite(sy) ? sy : new Date().getFullYear();
 };
 
 export const fmt = (n) =>

@@ -6,8 +6,10 @@ import {
   getClients,
   getWorkers,
   getSuppliers,
+  getFiscalYears,
   getActiveFiscalYear,
   getActiveFiscalYearId,
+  addFiscalYearLabel,
   getClientWithTxs,
   upsertClient,
   upsertGeneralTx,
@@ -31,8 +33,8 @@ export default function Modals() {
     showClientPicker,
     setShowClientPicker,
     loaded,
-    activeFY,
-    customFYs,
+    activeFiscalYearLabel,
+    customFiscalYearIds,
     persistSettings,
   } = useApp();
 
@@ -233,7 +235,7 @@ export default function Modals() {
             : "🔨 مصروف على العميل"}
         </Text>
         <Text style={styles.modalSubtitle}>
-          العميل: {activeClient?.name} — {activeFY}
+          العميل: {activeClient?.name} — {activeFiscalYearLabel}
         </Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
@@ -363,7 +365,7 @@ export default function Modals() {
       </CustomModal>
 
       <CustomModal visible={modal === "addGeneral"} onClose={() => setModal(null)}>
-        <Text style={styles.modalTitle}>🏢 مصروف عام — {activeFY}</Text>
+        <Text style={styles.modalTitle}>🏢 مصروف عام — {activeFiscalYearLabel}</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
           <TextInput
@@ -716,8 +718,15 @@ export default function Modals() {
             if (match) {
               const a = parseInt(match[1], 10);
               const b = parseInt(match[2], 10);
-              if (b === a + 1 && !(customFYs || []).includes(val)) {
-                await persistSettings({ customFYs: [...(customFYs || []), val] });
+              const existing = await getFiscalYears();
+              const labelTaken = (existing || []).some((r) => r.label === val);
+              if (b === a + 1 && !labelTaken) {
+                const newId = await addFiscalYearLabel(val);
+                if (newId != null) {
+                  await persistSettings({
+                    customFiscalYearIds: [...(customFiscalYearIds || []), newId],
+                  });
+                }
                 setForm((p) => ({ ...p, customFY: "" }));
                 setModal(null);
               }

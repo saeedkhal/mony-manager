@@ -14,7 +14,7 @@ import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
-  const { activeFY, deleteClientTx, setForm, setModal } = useApp();
+  const { activeFiscalYearLabel, deleteClientTx, setForm, setModal } = useApp();
 
   const openClientTx = (cid, txType, editTx = null) => {
     if (editTx) {
@@ -130,7 +130,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
           {client.name}
         </Text>
         <Text style={styles.clientDetailMeta}>
-          {client.project} — السنة المالية {activeFY}
+          {client.project} — السنة المالية {activeFiscalYearLabel}
         </Text>
         <View style={styles.clientDetailHeaderBtnRow}>
           <TouchableOpacity

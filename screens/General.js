@@ -9,7 +9,7 @@ import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function General() {
-  const { loaded, activeFY, modal } = useApp();
+  const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal } = useApp();
 
   const deleteGeneralTx = async (id) => {
     try {
@@ -20,13 +20,13 @@ export default function General() {
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded || !isFocused || activeFY == null) return;
+    if (!loaded || !isFocused || activeFiscalYearId == null) return;
     let cancelled = false;
-    getGeneralTxs(activeFY)
+    getGeneralTxs(activeFiscalYearId)
       .then((g) => { if (!cancelled) setGeneralTxs(g || []); })
       .catch(() => { if (!cancelled) setGeneralTxs([]); });
     return () => { cancelled = true; };
-  }, [loaded, isFocused, activeFY, modal]);
+  }, [loaded, isFocused, activeFiscalYearId, modal]);
 
   const fyGeneralTxs = generalTxs || [];
 
@@ -63,7 +63,7 @@ export default function General() {
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>🏢</Text>
           <Text style={styles.emptyText}>
-            لا توجد مصروفات عامة في السنة المالية {activeFY}
+            لا توجد مصروفات عامة في السنة المالية {activeFiscalYearLabel}
           </Text>
         </View>
       ) : (

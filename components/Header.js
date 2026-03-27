@@ -4,8 +4,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 export default function Header({
   onMenuPress,
   title,
-  activeFY,
-  onFYChange,
+  activeFiscalYearLabel,
+  onResetToCurrentFiscalYear,
   getCurrentFiscalYear,
   getFiscalYearLabel,
   headerActions,
@@ -24,15 +24,12 @@ export default function Header({
         <Text style={styles.fyLabel}>السنة المالية:</Text>
         <View style={styles.fyPickerContainer}>
           <View style={styles.fyPickerBtn}>
-            <Text style={styles.fyPickerText}>📅 {activeFY}</Text>
+            <Text style={styles.fyPickerText}>📅 {activeFiscalYearLabel}</Text>
           </View>
         </View>
-        <Text style={styles.fyLabelSub}>{getFiscalYearLabel(activeFY)}</Text>
-        {activeFY !== getCurrentFiscalYear() && (
-          <TouchableOpacity
-            style={styles.fyResetBtn}
-            onPress={() => onFYChange(getCurrentFiscalYear())}
-          >
+        <Text style={styles.fyLabelSub}>{getFiscalYearLabel(activeFiscalYearLabel)}</Text>
+        {activeFiscalYearLabel !== getCurrentFiscalYear() && (
+          <TouchableOpacity style={styles.fyResetBtn} onPress={onResetToCurrentFiscalYear}>
             <Text style={styles.fyResetText}>العودة للحالية</Text>
           </TouchableOpacity>
         )}

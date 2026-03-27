@@ -19,6 +19,8 @@ async function getWebState() {
       workers: data.workers || [],
       suppliers: data.suppliers || [],
       activeFY: data.activeFY || null,
+      activeFiscalYearId:
+        data.activeFiscalYearId != null ? Number(data.activeFiscalYearId) : null,
       customFYs: data.customFYs || [],
       nissabPrice: data.nissabPrice != null ? Number(data.nissabPrice) : 85000,
     };
@@ -165,8 +167,10 @@ async function getActiveFiscalYearWithDb(database) {
 async function getFiscalYearsWithDb(database) {
   const current = getCurrentFiscalYear();
   await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", current);
-  const rows = await database.getAllAsync("SELECT label FROM fiscal_years ORDER BY label DESC");
-  return rows.map((r) => r.label);
+  const rows = await database.getAllAsync(
+    "SELECT id, label, is_active FROM fiscal_years ORDER BY label DESC"
+  );
+  return rows.map((r) => ({ id: r.id, label: r.label, isActive: r.is_active === 1 }));
 }
 
 async function getActiveFiscalYearIdWithDb(database) {
@@ -187,51 +191,111 @@ export async function getActiveFiscalYear() {
   }
 }
 
+/** @returns {Promise<Array<{ id: number, label: string, isActive: boolean }>>} */
 export async function getFiscalYears() {
   try {
     if (IS_WEB) {
       const state = await getWebState();
-      return [(state && state.activeFY) ? state.activeFY : getCurrentFiscalYear()];
+      const id = state && state.activeFiscalYearId != null ? Number(state.activeFiscalYearId) : 1;
+      const label = (state && state.activeFY) ? state.activeFY : getCurrentFiscalYear();
+      return [{ id, label, isActive: true }];
     }
     return await runDb(getFiscalYearsWithDb);
   } catch (e) {
     console.warn("DB getFiscalYears error:", e?.message || e);
-    return [getCurrentFiscalYear()];
+    return [];
   }
 }
 
-export async function setActiveFiscalYear(label) {
+export async function setActiveFiscalYearById(fiscalYearId, labelForWeb = null) {
+  if (fiscalYearId == null || fiscalYearId === "") return;
   try {
     if (IS_WEB) {
       const state = await getWebState();
-      if (state) await setWebState({ ...state, activeFY: label });
+      if (state) {
+        await setWebState({
+          ...state,
+          activeFiscalYearId: Number(fiscalYearId),
+          ...(labelForWeb != null ? { activeFY: labelForWeb } : {}),
+        });
+      }
       return;
     }
     await runDb(async (database) => {
       await database.runAsync("UPDATE fiscal_years SET is_active = 0");
-      await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 1)", label);
-      await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE label = ?", label);
+      await database.runAsync("UPDATE fiscal_years SET is_active = 1 WHERE id = ?", fiscalYearId);
     });
   } catch (e) {
-    console.warn("DB setActiveFiscalYear error:", e?.message || e);
+    console.warn("DB setActiveFiscalYearById error:", e?.message || e);
   }
 }
 
+/** @returns {Promise<number | null>} row id */
+export async function ensureFiscalYearLabel(label) {
+  try {
+    if (IS_WEB) {
+      return 1;
+    }
+    return await runDb(async (database) => {
+      await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", label);
+      const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE label = ?", label);
+      return row?.id ?? null;
+    });
+  } catch (e) {
+    console.warn("DB ensureFiscalYearLabel error:", e?.message || e);
+    return null;
+  }
+}
+
+export async function getFiscalYearRowById(id) {
+  try {
+    if (IS_WEB) return null;
+    return await runDb(async (database) => {
+      const row = await database.getFirstAsync("SELECT id, label FROM fiscal_years WHERE id = ?", id);
+      return row ? { id: row.id, label: row.label } : null;
+    });
+  } catch (e) {
+    console.warn("DB getFiscalYearRowById error:", e?.message || e);
+    return null;
+  }
+}
+
+export async function getCurrentFiscalYearId() {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      return state && state.activeFiscalYearId != null ? Number(state.activeFiscalYearId) : null;
+    }
+    return await runDb(async (database) => {
+      const label = getCurrentFiscalYear();
+      await database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", label);
+      const row = await database.getFirstAsync("SELECT id FROM fiscal_years WHERE label = ?", label);
+      return row?.id ?? null;
+    });
+  } catch (e) {
+    console.warn("DB getCurrentFiscalYearId error:", e?.message || e);
+    return null;
+  }
+}
+
+/** @returns {Promise<number | null>} new or existing row id */
 export async function addFiscalYearLabel(label) {
   try {
-    if (IS_WEB) return;
-    await runDb((database) => database.runAsync("INSERT OR IGNORE INTO fiscal_years (label, is_active) VALUES (?, 0)", label));
+    return await ensureFiscalYearLabel(label);
   } catch (e) {
     console.warn("DB addFiscalYearLabel error:", e?.message || e);
+    return null;
   }
 }
 
-export async function removeFiscalYearLabel(label) {
+export async function removeFiscalYearById(fiscalYearId) {
   try {
     if (IS_WEB) return;
-    await runDb((database) => database.runAsync("DELETE FROM fiscal_years WHERE label = ? AND is_active = 0", label));
+    await runDb((database) =>
+      database.runAsync("DELETE FROM fiscal_years WHERE id = ? AND is_active = 0", fiscalYearId)
+    );
   } catch (e) {
-    console.warn("DB removeFiscalYearLabel error:", e?.message || e);
+    console.warn("DB removeFiscalYearById error:", e?.message || e);
   }
 }
 
@@ -301,7 +365,7 @@ export async function getFullState() {
         settingsRows.length > 0;
       if (!hasData) return null;
 
-      const [activeFY, customFYs] = await Promise.all([getActiveFiscalYearWithDb(database), getFiscalYearsWithDb(database)]);
+      const [activeFY, fyRows] = await Promise.all([getActiveFiscalYearWithDb(database), getFiscalYearsWithDb(database)]);
       const clients = clientsRows.map((c) => rowToClient(c, txRows));
       const generalTxs = generalRows.map((r) => ({
         id: r.id,
@@ -330,7 +394,7 @@ export async function getFullState() {
         workers,
         suppliers,
         activeFY: activeFY || null,
-        customFYs: Array.isArray(customFYs) ? customFYs : [],
+        customFYs: Array.isArray(fyRows) ? fyRows.map((r) => r.label) : [],
         nissabPrice,
       };
     });
@@ -400,27 +464,24 @@ export async function getClientWithTxs(clientId) {
   }
 }
 
-/** Get all general txs. If activeFY (label) is passed, only txs for that fiscal year are returned. Returns [] on error. On web reads from AsyncStorage. */
-export async function getGeneralTxs(activeFY = null) {
+/** Get all general txs. Pass fiscal year row id to filter; omit for all rows. Returns [] on error. On web reads from AsyncStorage. */
+export async function getGeneralTxs(fiscalYearId = null) {
   try {
     if (IS_WEB) {
       const state = await getWebState();
       let list = state ? state.generalTxs : [];
-      if (activeFY != null && activeFY !== "") {
-        const fyId = null;
-        if (fyId != null) list = (list || []).filter((t) => t.fiscalYearId === fyId);
+      if (fiscalYearId != null && fiscalYearId !== "") {
+        const fyId = Number(fiscalYearId);
+        list = (list || []).filter((t) => Number(t.fiscalYearId) === fyId);
       }
       return list;
     }
     return await runDb(async (database) => {
       let sql = "SELECT id, amount, cat, note, date, fiscal_year_id FROM general";
       const params = [];
-      if (activeFY != null && activeFY !== "") {
-        const fyId = await getActiveFiscalYearIdWithDb(database);
-        if (fyId != null) {
-          sql += " WHERE fiscal_year_id = ?";
-          params.push(fyId);
-        }
+      if (fiscalYearId != null && fiscalYearId !== "") {
+        sql += " WHERE fiscal_year_id = ?";
+        params.push(fiscalYearId);
       }
       sql += " ORDER BY id";
       const rows = params.length
@@ -488,7 +549,16 @@ export async function getSettings() {
   try {
     if (IS_WEB) {
       const state = await getWebState();
-      return state ? { nissabPrice: state.nissabPrice ?? 85000 } : { nissabPrice: 85000 };
+      if (!state) return { nissabPrice: 85000, customFiscalYearIds: [], activeFiscalYearId: null };
+      let customFiscalYearIds = [];
+      if (Array.isArray(state.customFiscalYearIds)) {
+        customFiscalYearIds = state.customFiscalYearIds.map((x) => Number(x)).filter((n) => !Number.isNaN(n));
+      }
+      return {
+        nissabPrice: state.nissabPrice ?? 85000,
+        customFiscalYearIds,
+        activeFiscalYearId: state.activeFiscalYearId != null ? Number(state.activeFiscalYearId) : null,
+      };
     }
     return await runDb(async (database) => {
       const rows = await database.getAllAsync("SELECT key, value FROM settings");
@@ -500,11 +570,18 @@ export async function getSettings() {
         await database.runAsync("DELETE FROM settings WHERE key IN ('activeFY', 'customFYs')");
       }
       const nissabPrice = settings.nissabPrice != null ? Number(settings.nissabPrice) : 85000;
-      return { nissabPrice };
+      let customFiscalYearIds = [];
+      if (settings.customFiscalYearIds) {
+        try {
+          const parsed = JSON.parse(settings.customFiscalYearIds);
+          if (Array.isArray(parsed)) customFiscalYearIds = parsed.map((x) => Number(x)).filter((n) => !Number.isNaN(n));
+        } catch (_) {}
+      }
+      return { nissabPrice, customFiscalYearIds };
     });
   } catch (e) {
     console.warn("DB getSettings error:", e?.message || e);
-    return { nissabPrice: 85000 };
+    return { nissabPrice: 85000, customFiscalYearIds: [] };
   }
 }
 
@@ -933,7 +1010,12 @@ export async function setSettings(settings) {
         workers: (state && state.workers) || [],
         suppliers: (state && state.suppliers) || [],
         activeFY: state && state.activeFY,
+        activeFiscalYearId: state && state.activeFiscalYearId,
         customFYs: state && state.customFYs,
+        customFiscalYearIds:
+          settings.customFiscalYearIds !== undefined
+            ? settings.customFiscalYearIds
+            : state && state.customFiscalYearIds,
         nissabPrice,
       });
       return;
@@ -945,6 +1027,12 @@ export async function setSettings(settings) {
           "nissabPrice",
           String(settings.nissabPrice)
         )
+      );
+    }
+    if (settings.customFiscalYearIds !== undefined) {
+      const json = JSON.stringify(settings.customFiscalYearIds || []);
+      await runDb((database) =>
+        database.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "customFiscalYearIds", json)
       );
     }
   } catch (e) {

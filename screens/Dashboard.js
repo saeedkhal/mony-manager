@@ -25,16 +25,16 @@ const chartConfig = {
 };
 
 export default function Dashboard() {
-  const { loaded, activeFY, customFYs } = useApp();
+  const { loaded, activeFiscalYearId, activeFiscalYearLabel } = useApp();
   const isFocused = useIsFocused();
   const navigation = useNavigation();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
 
   useEffect(() => {
-    if (!loaded || !isFocused || activeFY == null) return;
+    if (!loaded || !isFocused || activeFiscalYearId == null) return;
     let cancelled = false;
-    Promise.all([getClients(), getGeneralTxs(activeFY)])
+    Promise.all([getClients(), getGeneralTxs(activeFiscalYearId)])
       .then(([c, g]) => {
         if (!cancelled) {
           setClients(c || []);
@@ -46,9 +46,9 @@ export default function Dashboard() {
         if (!cancelled) setGeneralTxs([]);
       });
     return () => { cancelled = true; };
-  }, [loaded, isFocused, activeFY]);
+  }, [loaded, isFocused, activeFiscalYearId]);
 
-  const appData = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
+  const appData = useAppData(clients, generalTxs, [], [], activeFiscalYearId, activeFiscalYearLabel);
   const {
     fyClients,
     fyGeneralTxs,
@@ -113,7 +113,7 @@ export default function Dashboard() {
 
       {monthlyData.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>📅 الدخل والمصروفات شهرياً — {activeFY}</Text>
+          <Text style={styles.cardTitle}>📅 الدخل والمصروفات شهرياً — {activeFiscalYearLabel}</Text>
           <BarChart
             data={monthlyChartData}
             width={SCREEN_WIDTH - 80}
@@ -129,7 +129,7 @@ export default function Dashboard() {
 
       {chartData.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>🏆 ربحية العملاء — {activeFY}</Text>
+          <Text style={styles.cardTitle}>🏆 ربحية العملاء — {activeFiscalYearLabel}</Text>
           <BarChart
             data={clientChartData}
             width={SCREEN_WIDTH - 80}
@@ -180,7 +180,7 @@ export default function Dashboard() {
       {fyClients.length === 0 && totalGenExp === 0 && (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>📭</Text>
-          <Text style={styles.emptyText}>لا توجد بيانات في السنة المالية {activeFY}</Text>
+          <Text style={styles.emptyText}>لا توجد بيانات في السنة المالية {activeFiscalYearLabel}</Text>
         </View>
       )}
       </View>

@@ -13,6 +13,7 @@ import RootNavigator from "./navigation/RootNavigator";
 import Modals from "./components/Modals";
 import { NAV_ITEMS } from "./constants";
 import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
+import { ensureFiscalYearLabel } from "./utils/db";
 import styles from "./styles/AppStyles";
 import DrizzleStudio from "./components/DrizzleStudio";
 
@@ -29,7 +30,7 @@ function AppContent() {
     setShowDrawer,
     closeDrawer,
     drawerAnimation,
-    activeFY,
+    activeFiscalYearLabel,
     handleFYChange,
   } = useApp();
 
@@ -66,8 +67,11 @@ function AppContent() {
         <Header
           onMenuPress={() => setShowDrawer(true)}
           title="🏪 مول عموله"
-          activeFY={activeFY}
-          onFYChange={handleFYChange}
+          activeFiscalYearLabel={activeFiscalYearLabel}
+          onResetToCurrentFiscalYear={async () => {
+            const id = await ensureFiscalYearLabel(getCurrentFiscalYear());
+            if (id != null) await handleFYChange(id, getCurrentFiscalYear());
+          }}
           getCurrentFiscalYear={getCurrentFiscalYear}
           getFiscalYearLabel={getFiscalYearLabel}
           headerActions={<HeaderActions currentRoute={currentRoute} />}
