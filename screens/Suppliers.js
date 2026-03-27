@@ -12,46 +12,16 @@ import CustomModal from "../components/Modal";
 export default function Suppliers() {
   const { loaded, modal, setForm, setModal, form } = useApp();
 
+  const [suppliers, setSuppliers] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSupplier, setSelectedSupplier] = useState(null);
+
   const deleteSupplier = async (id) => {
     try {
       await dbDeleteSupplier(id);
     } catch (_) {}
   };
-
-  const saveSupplier = async () => {
-    if (!form.name?.trim()) return;
-    if (form.editId) {
-      const list = await getSuppliers();
-      const s = list.find((x) => x.id === form.editId);
-      if (!s) return;
-      const updated = {
-        ...s,
-        name: form.name.trim(),
-        phone: form.phone || "",
-        category: form.category || "",
-      };
-      try {
-        await upsertSupplier(updated);
-      } catch (_) {}
-    } else {
-      const newSupplier = {
-        id: Date.now(),
-        name: form.name.trim(),
-        phone: form.phone || "",
-        category: form.category || "",
-      };
-      try {
-        await upsertSupplier(newSupplier);
-      } catch (_) {}
-    }
-    setModal(null);
-    setForm({});
-  };
-
-  const [suppliers, setSuppliers] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedSupplier, setSelectedSupplier] = useState(null);
 
   useEffect(() => {
     if (!loaded) return;
@@ -86,6 +56,35 @@ export default function Suppliers() {
       })
       .sort((a, b) => b.total - a.total);
   }, [suppliers, clients]);
+
+  const saveSupplier = async () => {
+    if (!form.name?.trim()) return;
+    try {
+      if (form.editId) {
+        const list = await getSuppliers();
+        const s = list.find((x) => x.id === form.editId);
+        if (!s) return;
+        await upsertSupplier({
+          ...s,
+          name: form.name.trim(),
+          phone: form.phone || "",
+          category: form.category || "",
+        });
+      } else {
+        await upsertSupplier({
+          id: Date.now(),
+          name: form.name.trim(),
+          phone: form.phone || "",
+          category: form.category || "",
+        });
+      }
+      const [sup, c] = await Promise.all([getSuppliers(), getClients()]);
+      setSuppliers(sup || []);
+      setClients(c || []);
+    } catch (_) {}
+    setModal(null);
+    setForm({});
+  };
 
   const supplierModal = (
     <CustomModal visible={modal === "addSupplier"} onClose={() => setModal(null)}>

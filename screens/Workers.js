@@ -12,36 +12,16 @@ import CustomModal from "../components/Modal";
 export default function Workers() {
   const { loaded, modal, setForm, setModal, form } = useApp();
 
+  const [workers, setWorkers] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedWorker, setSelectedWorker] = useState(null);
+
   const deleteWorker = async (id) => {
     try {
       await dbDeleteWorker(id);
     } catch (_) {}
   };
-
-  const saveWorker = async () => {
-    if (!form.name?.trim()) return;
-    if (form.editId) {
-      const list = await getWorkers();
-      const w = list.find((x) => x.id === form.editId);
-      if (!w) return;
-      const updated = { ...w, name: form.name.trim(), phone: form.phone || "" };
-      try {
-        await upsertWorker(updated);
-      } catch (_) {}
-    } else {
-      const newWorker = { id: Date.now(), name: form.name.trim(), phone: form.phone || "" };
-      try {
-        await upsertWorker(newWorker);
-      } catch (_) {}
-    }
-    setModal(null);
-    setForm({});
-  };
-
-  const [workers, setWorkers] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedWorker, setSelectedWorker] = useState(null);
 
   useEffect(() => {
     if (!loaded) return;
@@ -76,6 +56,29 @@ export default function Workers() {
       })
       .sort((a, b) => b.total - a.total);
   }, [workers, clients]);
+
+  const saveWorker = async () => {
+    if (!form.name?.trim()) return;
+    try {
+      if (form.editId) {
+        const list = await getWorkers();
+        const w = list.find((x) => x.id === form.editId);
+        if (!w) return;
+        await upsertWorker({ ...w, name: form.name.trim(), phone: form.phone || "" });
+      } else {
+        await upsertWorker({
+          id: Date.now(),
+          name: form.name.trim(),
+          phone: form.phone || "",
+        });
+      }
+      const [w, c] = await Promise.all([getWorkers(), getClients()]);
+      setWorkers(w || []);
+      setClients(c || []);
+    } catch (_) {}
+    setModal(null);
+    setForm({});
+  };
 
   const workerModal = (
     <CustomModal visible={modal === "addWorker"} onClose={() => setModal(null)}>

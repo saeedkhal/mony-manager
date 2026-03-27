@@ -89,8 +89,12 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
     }
     try {
       await upsertClient(updatedClient);
+      const [sup, cl] = await Promise.all([getSuppliers(), getClients()]);
+      setSuppliers(sup || []);
+      setClients(cl || []);
     } catch (_) {}
     setModal(null);
+    setShowClientPicker(false);
     setForm({});
   };
 

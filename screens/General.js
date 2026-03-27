@@ -44,6 +44,10 @@ export default function General() {
     };
     try {
       await upsertGeneralTx(tx);
+      if (fiscalYearId != null) {
+        const g = await getGeneralTxs(fiscalYearId);
+        setGeneralTxs(g || []);
+      }
     } catch (_) {}
     setModal(null);
     setForm({});

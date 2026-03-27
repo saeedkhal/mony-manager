@@ -42,6 +42,8 @@ export default function Clients() {
     };
     try {
       await upsertClient(newClient);
+      const list = await getClients();
+      setClients(list || []);
     } catch (_) {}
     setModal(null);
     setForm({});

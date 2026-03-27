@@ -47,14 +47,6 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     } catch (_) {}
   };
 
-  const toggleStatus = async (cid) => {
-    const c = await getClientWithTxs(cid);
-    if (!c) return;
-    const updated = { ...c, status: c.status === "active" ? "done" : "active" };
-    try {
-      await upsertClient(updated);
-    } catch (_) {}
-  };
   const [client, setClient] = useState(null);
   const [workers, setWorkers] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -91,6 +83,30 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     return () => { cancelled = true; };
   }, [selectedClient]);
 
+  const refetchClientScreen = async () => {
+    if (!selectedClient) return;
+    try {
+      const [c, w, s] = await Promise.all([
+        getClientWithTxs(selectedClient),
+        getWorkers(),
+        getSuppliers(),
+      ]);
+      setClient(c || null);
+      setWorkers(w || []);
+      setSuppliers(s || []);
+    } catch (_) {}
+  };
+
+  const toggleStatus = async (cid) => {
+    const c = await getClientWithTxs(cid);
+    if (!c) return;
+    const updated = { ...c, status: c.status === "active" ? "done" : "active" };
+    try {
+      await upsertClient(updated);
+      await refetchClientScreen();
+    } catch (_) {}
+  };
+
   const totals = useMemo(() => {
     if (!client) return { income: 0, expense: 0, profit: 0 };
     const txs = client.txs || [];
@@ -124,6 +140,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     }
     try {
       await upsertClient(updatedClient);
+      await refetchClientScreen();
     } catch (_) {}
     setModal(null);
     setForm({});

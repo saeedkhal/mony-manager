@@ -89,8 +89,12 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
     }
     try {
       await upsertClient(updatedClient);
+      const [w, cl] = await Promise.all([getWorkers(), getClients()]);
+      setWorkers(w || []);
+      setClients(cl || []);
     } catch (_) {}
     setModal(null);
+    setShowClientPicker(false);
     setForm({});
   };
 

@@ -124,6 +124,8 @@ export default function FiscalYear() {
                     customFiscalYearIds: [...(customFiscalYearIds || []), newId],
                   });
                 }
+                const nextList = await getFiscalYears();
+                if (nextList?.length) setAllFYs(nextList);
                 setCustomFY("");
                 setAddFyOpen(false);
               }
