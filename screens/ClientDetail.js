@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import {
   getClientWithTxs,
@@ -12,9 +12,10 @@ import { CURRENCY, STATUS_LABELS, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
+import CustomModal from "../components/Modal";
 
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
-  const { activeFiscalYearLabel, deleteClientTx, setForm, setModal } = useApp();
+  const { activeFiscalYearLabel, deleteClientTx, setForm, setModal, modal, form } = useApp();
 
   const openClientTx = (cid, txType, editTx = null) => {
     if (editTx) {
@@ -101,6 +102,35 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const getWorkerName = (id) => workers.find((w) => w.id === id)?.name || "غير محدد";
   const getSupplierName = (id) => suppliers.find((s) => s.id === id)?.name || "غير محدد";
 
+  const saveClientTx = async () => {
+    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
+    const date = form.date || new Date().toISOString().split("T")[0];
+    const targetClientId = form.clientId;
+    const c = await getClientWithTxs(targetClientId);
+    if (!c) return;
+    const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
+    if (form.workerId) tx.workerId = form.workerId;
+    if (form.supplierId) tx.supplierId = form.supplierId;
+    let updatedClient;
+    if (form.editTxId) {
+      tx.id = form.editTxId;
+      updatedClient = {
+        ...c,
+        txs: (c.txs || []).map((t) => (t.id === form.editTxId ? tx : t)),
+      };
+    } else {
+      tx.id = Date.now();
+      updatedClient = { ...c, txs: [...(c.txs || []), tx] };
+    }
+    try {
+      await upsertClient(updatedClient);
+    } catch (_) {}
+    setModal(null);
+    setForm({});
+  };
+
+  const txModalClientName = client?.id === form.clientId ? client?.name : undefined;
+
   if (!selectedClient) return null;
   if (loading) {
     return (
@@ -117,6 +147,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const t = totals;
 
   return (
+    <>
     <ScreenLayout>
       <View style={styles.clientDetail}>
       <View style={styles.clientDetailBackRow}>
@@ -264,5 +295,143 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </View>
       </View>
     </ScreenLayout>
+    <CustomModal visible={modal === "addClientTx"} onClose={() => setModal(null)}>
+      <Text style={styles.modalTitle}>
+        {form.editTxId
+          ? "✏️ تعديل معاملة"
+          : form.txType === "income"
+            ? "💵 دفعة مستلمة"
+            : "🔨 مصروف على العميل"}
+      </Text>
+      <Text style={styles.modalSubtitle}>
+        العميل: {txModalClientName} — {activeFiscalYearLabel}
+      </Text>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="0"
+          placeholderTextColor="#64748b"
+          value={form.amount?.toString() || ""}
+          onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
+          keyboardType="numeric"
+        />
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>الفئة</Text>
+        <View style={styles.optionsGrid}>
+          {(form.txType === "income"
+            ? ["مقدم", "دفعة", "رصيد نهائي", "أخرى"]
+            : CLIENT_EXPENSE_CATS
+          ).map((cat) => (
+            <TouchableOpacity
+              key={cat}
+              style={[
+                styles.optionBtn,
+                form.cat === cat && styles.optionBtnActive,
+                form.txType === "income" && form.cat === cat && { backgroundColor: "#6366f1" },
+                form.txType === "expense" && form.cat === cat && { backgroundColor: "#f43f5e" },
+              ]}
+              onPress={() => setForm((p) => ({ ...p, cat, workerId: undefined, supplierId: undefined }))}
+            >
+              <Text style={[styles.optionBtnText, form.cat === cat && styles.optionBtnTextActive]}>
+                {cat}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      {form.txType === "expense" && form.cat === "مصنعية" && workers.length > 0 && (
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>👷 الصنايعي</Text>
+          <View style={styles.optionsGrid}>
+            {workers.map((w) => (
+              <TouchableOpacity
+                key={w.id}
+                style={[
+                  styles.optionBtn,
+                  form.workerId === w.id && {
+                    backgroundColor: "rgba(245,158,11,0.3)",
+                    borderColor: "#f59e0b",
+                  },
+                ]}
+                onPress={() => setForm((p) => ({ ...p, workerId: w.id }))}
+              >
+                <Text
+                  style={[
+                    styles.optionBtnText,
+                    form.workerId === w.id && { color: "#f59e0b", fontWeight: "700" },
+                  ]}
+                >
+                  {w.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+      {form.txType === "expense" &&
+        (form.cat === "قماش" || form.cat === "خشب وكلف") &&
+        suppliers.length > 0 && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>🏭 المورد</Text>
+            <View style={styles.optionsGrid}>
+              {suppliers.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[
+                    styles.optionBtn,
+                    form.supplierId === s.id && {
+                      backgroundColor: "rgba(139,92,246,0.3)",
+                      borderColor: "#a78bfa",
+                    },
+                  ]}
+                  onPress={() => setForm((p) => ({ ...p, supplierId: s.id }))}
+                >
+                  <Text
+                    style={[
+                      styles.optionBtnText,
+                      form.supplierId === s.id && { color: "#a78bfa", fontWeight: "700" },
+                    ]}
+                  >
+                    {s.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder=""
+          placeholderTextColor="#64748b"
+          value={form.note || ""}
+          onChangeText={(text) => setForm((p) => ({ ...p, note: text }))}
+        />
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>التاريخ</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor="#64748b"
+          value={form.date || ""}
+          onChangeText={(text) => setForm((p) => ({ ...p, date: text }))}
+        />
+      </View>
+      <TouchableOpacity
+        style={[
+          styles.btn,
+          form.txType === "income" ? styles.btnIncome : styles.btnExpense,
+          styles.modalSaveBtn,
+        ]}
+        onPress={saveClientTx}
+      >
+        <Text style={styles.btnText}>{form.editTxId ? "حفظ التعديلات ✓" : "حفظ ✓"}</Text>
+      </TouchableOpacity>
+    </CustomModal>
+    </>
   );
 }

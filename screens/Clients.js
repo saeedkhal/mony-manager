@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, TextInput, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getClients } from "../utils/db";
-import { STATUS_LABELS } from "../constants";
+import { getClients, getActiveFiscalYear, getActiveFiscalYearId, upsertClient } from "../utils/db";
+import { STATUS_LABELS, PROJECT_TYPES } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
+import CustomModal from "../components/Modal";
 
 export default function Clients() {
-  const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal } = useApp();
+  const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
@@ -25,6 +26,27 @@ export default function Clients() {
     return () => { cancelled = true; };
   }, [loaded, activeFiscalYearId, modal]);
 
+  const saveClient = async () => {
+    if (!form.name?.trim()) return;
+    await getActiveFiscalYear();
+    const fiscalYearId = await getActiveFiscalYearId();
+    const newClient = {
+      id: Date.now(),
+      name: form.name.trim(),
+      project: form.project || PROJECT_TYPES[0],
+      status: "active",
+      note: form.note || "",
+      fiscalYearId: fiscalYearId ?? null,
+      createdAt: new Date().toISOString().split("T")[0],
+      txs: [],
+    };
+    try {
+      await upsertClient(newClient);
+    } catch (_) {}
+    setModal(null);
+    setForm({});
+  };
+
   const clientsWithYearTxs = clients || [];
 
   const totalsForYear = (c) => {
@@ -34,86 +56,149 @@ export default function Clients() {
     return { income, expense, profit: income - expense };
   };
 
+  const addClientModal = (
+    <CustomModal visible={modal === "addClient"} onClose={() => setModal(null)}>
+      <Text style={styles.modalTitle}>👤 إضافة عميل جديد</Text>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>اسم العميل</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="مثال: أحمد محمد"
+          placeholderTextColor="#64748b"
+          value={form.name || ""}
+          onChangeText={(text) => setForm((p) => ({ ...p, name: text }))}
+        />
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="أي تفاصيل إضافية"
+          placeholderTextColor="#64748b"
+          value={form.note || ""}
+          onChangeText={(text) => setForm((p) => ({ ...p, note: text }))}
+        />
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>نوع المشروع</Text>
+        <View style={styles.optionsGrid}>
+          {PROJECT_TYPES.map((pt) => (
+            <TouchableOpacity
+              key={pt}
+              style={[styles.optionBtn, form.project === pt && styles.optionBtnActive]}
+              onPress={() => setForm((p) => ({ ...p, project: pt }))}
+            >
+              <Text style={[styles.optionBtnText, form.project === pt && styles.optionBtnTextActive]}>
+                {pt}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      <TouchableOpacity style={[styles.btn, styles.btnPrimary, styles.modalSaveBtn]} onPress={saveClient}>
+        <Text style={styles.btnText}>حفظ العميل ✓</Text>
+      </TouchableOpacity>
+    </CustomModal>
+  );
+
   if (selectedClient) {
     return (
-      <ClientDetail
-        selectedClient={selectedClient}
-        setSelectedClient={setSelectedClient}
-        onClientDeleted={() => setSelectedClient(null)}
-      />
+      <>
+        <ClientDetail
+          selectedClient={selectedClient}
+          setSelectedClient={setSelectedClient}
+          onClientDeleted={() => setSelectedClient(null)}
+        />
+        {addClientModal}
+      </>
     );
   }
 
   if (loading) {
     return (
-      <View style={styles.clientsView}>
-        <Text style={styles.loadingText}>جاري التحميل...</Text>
-      </View>
+      <>
+        <View style={styles.clientsView}>
+          <Text style={styles.loadingText}>جاري التحميل...</Text>
+        </View>
+        {addClientModal}
+      </>
     );
   }
 
   return (
-    <ScreenLayout>
-      <View style={styles.clientsView}>
-      {clients.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>👥</Text>
-          <Text style={styles.emptyText}>لا يوجد عملاء بعد، ابدأ بإضافة عميل!</Text>
+    <>
+      <ScreenLayout>
+        <View style={styles.clientsView}>
+          <TouchableOpacity
+            style={[styles.btn, styles.btnPrimary, { marginBottom: 16, alignSelf: "flex-start" }]}
+            onPress={() => {
+              setForm({});
+              setModal("addClient");
+            }}
+          >
+            <Text style={styles.btnText}>+ عميل جديد</Text>
+          </TouchableOpacity>
+          {clients.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyIcon}>👥</Text>
+              <Text style={styles.emptyText}>لا يوجد عملاء بعد، ابدأ بإضافة عميل!</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.sectionSubtitle}>
+                جميع العملاء — السنة المالية {activeFiscalYearLabel}
+              </Text>
+              <View style={styles.clientsGrid}>
+                {clientsWithYearTxs.map((c) => {
+                  const t = totalsForYear(c);
+                  const s = STATUS_LABELS[c.status];
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={styles.clientCard}
+                      onPress={() => setSelectedClient(c.id)}
+                    >
+                      <View style={styles.clientCardHeader}>
+                        <View>
+                          <Text style={styles.clientCardName}>{c.name}</Text>
+                          <Text style={styles.clientCardMeta}>
+                            {c.project} • {c.createdAt}
+                          </Text>
+                        </View>
+                        <View style={[styles.statusBadge, { backgroundColor: s.bg }]}>
+                          <Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.clientCardStats}>
+                        <View style={styles.clientCardStat}>
+                          <Text style={styles.clientCardStatLabel}>دخل</Text>
+                          <Text style={[styles.clientCardStatValue, { color: "#818cf8" }]}>{fmt(t.income)}</Text>
+                        </View>
+                        <View style={styles.clientCardStat}>
+                          <Text style={styles.clientCardStatLabel}>مصروف</Text>
+                          <Text style={[styles.clientCardStatValue, { color: "#fb923c" }]}>{fmt(t.expense)}</Text>
+                        </View>
+                        <View style={styles.clientCardStat}>
+                          <Text style={styles.clientCardStatLabel}>ربح</Text>
+                          <Text
+                            style={[
+                              styles.clientCardStatValue,
+                              { color: t.profit >= 0 ? "#10b981" : "#f43f5e" },
+                            ]}
+                          >
+                            {fmt(t.profit)}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
         </View>
-      ) : (
-        <>
-          <Text style={styles.sectionSubtitle}>
-            جميع العملاء — السنة المالية {activeFiscalYearLabel}
-          </Text>
-          <View style={styles.clientsGrid}>
-            {clientsWithYearTxs.map((c) => {
-              const t = totalsForYear(c);
-              const s = STATUS_LABELS[c.status];
-              return (
-                <TouchableOpacity
-                  key={c.id}
-                  style={styles.clientCard}
-                  onPress={() => setSelectedClient(c.id)}
-                >
-                  <View style={styles.clientCardHeader}>
-                    <View>
-                      <Text style={styles.clientCardName}>{c.name}</Text>
-                      <Text style={styles.clientCardMeta}>
-                        {c.project} • {c.createdAt}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: s.bg }]}>
-                      <Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.clientCardStats}>
-                    <View style={styles.clientCardStat}>
-                      <Text style={styles.clientCardStatLabel}>دخل</Text>
-                      <Text style={[styles.clientCardStatValue, { color: "#818cf8" }]}>{fmt(t.income)}</Text>
-                    </View>
-                    <View style={styles.clientCardStat}>
-                      <Text style={styles.clientCardStatLabel}>مصروف</Text>
-                      <Text style={[styles.clientCardStatValue, { color: "#fb923c" }]}>{fmt(t.expense)}</Text>
-                    </View>
-                    <View style={styles.clientCardStat}>
-                      <Text style={styles.clientCardStatLabel}>ربح</Text>
-                      <Text
-                        style={[
-                          styles.clientCardStatValue,
-                          { color: t.profit >= 0 ? "#10b981" : "#f43f5e" },
-                        ]}
-                      >
-                        {fmt(t.profit)}
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </>
-      )}
-      </View>
-    </ScreenLayout>
+      </ScreenLayout>
+      {addClientModal}
+    </>
   );
 }

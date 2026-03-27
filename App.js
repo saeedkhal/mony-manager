@@ -4,13 +4,11 @@ import { View, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
 import Header from "./components/Header";
-import HeaderActions from "./components/HeaderActions";
 import Drawer from "./components/Drawer";
 import RootNavigator from "./navigation/RootNavigator";
-import Modals from "./components/Modals";
 import { NAV_ITEMS } from "./constants";
 import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
 import { ensureFiscalYearLabel } from "./utils/db";
@@ -23,7 +21,7 @@ I18nManager.allowRTL(true);
 function AppContent() {
   const insets = useSafeAreaInsets();
   const navigationRef = useRef(null);
-  const [currentRoute, setCurrentRoute] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const {
     loaded,
     showDrawer,
@@ -34,14 +32,14 @@ function AppContent() {
     handleFYChange,
   } = useApp();
 
+  const navigateTo = (name) => {
+    navigationRef.current?.navigate(name);
+  };
+
   const onNavStateChange = (state) => {
     if (!state) return;
     const route = state.routes[state.index];
-    if (route?.name) setCurrentRoute(route.name);
-  };
-
-  const navigateTo = (name) => {
-    navigationRef.current?.navigate(name);
+    if (route?.name) setActiveTab(route.name);
   };
 
   const systemBarColor = "#f0f0f0";
@@ -74,7 +72,6 @@ function AppContent() {
           }}
           getCurrentFiscalYear={getCurrentFiscalYear}
           getFiscalYearLabel={getFiscalYearLabel}
-          headerActions={<HeaderActions currentRoute={currentRoute} />}
         />
         <NavigationContainer
           ref={navigationRef}
@@ -89,7 +86,7 @@ function AppContent() {
         visible={showDrawer}
         onClose={closeDrawer}
         navItems={NAV_ITEMS}
-        activeTab={currentRoute}
+        activeTab={activeTab}
         onTabChange={(k) => {
           navigateTo(k);
           closeDrawer();
@@ -97,7 +94,6 @@ function AppContent() {
         drawerAnimation={drawerAnimation}
         safeAreaBottom={insets.bottom}
       />
-      <Modals />
     </View>
   );
 }
