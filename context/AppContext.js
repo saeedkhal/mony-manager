@@ -7,7 +7,6 @@ import {
   addFiscalYearLabel,
   removeFiscalYearLabel,
   deleteClientTx as dbDeleteClientTx,
-  setSettings as dbSetSettings,
 } from "../utils/db";
 import { getCurrentFiscalYear } from "../utils/helpers";
 
@@ -17,7 +16,6 @@ const AppContext = createContext();
 export function AppProvider({ children }) {
   const [activeFY, setActiveFY] = useState(getCurrentFiscalYear());
   const [customFYs, setCustomFYs] = useState([]);
-  const [nissabPrice, setNissabPrice] = useState(85000);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [showClientPicker, setShowClientPicker] = useState(false);
@@ -32,7 +30,6 @@ export function AppProvider({ children }) {
       if (s) {
         setActiveFY(s.activeFY || getCurrentFiscalYear());
         setCustomFYs(s.customFYs || []);
-        setNissabPrice(s.nissabPrice ?? 85000);
       }
       setLoaded(true);
     };
@@ -75,7 +72,6 @@ export function AppProvider({ children }) {
     const next = {
       activeFY: partial.activeFY !== undefined ? partial.activeFY : activeFY,
       customFYs: partial.customFYs !== undefined ? partial.customFYs : customFYs,
-      nissabPrice: partial.nissabPrice !== undefined ? partial.nissabPrice : nissabPrice,
     };
     if (partial.activeFY !== undefined) {
       setActiveFY(next.activeFY);
@@ -94,12 +90,6 @@ export function AppProvider({ children }) {
       }
       setCustomFYs(next.customFYs);
     }
-    if (partial.nissabPrice !== undefined) {
-      setNissabPrice(next.nissabPrice);
-      try {
-        await dbSetSettings({ nissabPrice: next.nissabPrice });
-      } catch (_) {}
-    }
   };
 
   const value = {
@@ -112,8 +102,6 @@ export function AppProvider({ children }) {
     setActiveFY,
     customFYs,
     setCustomFYs,
-    nissabPrice,
-    setNissabPrice,
     showClientPicker,
     setShowClientPicker,
     showDrawer,

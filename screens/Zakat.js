@@ -3,7 +3,7 @@ import { View, Text, TextInput } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
-import { getClients, getGeneralTxs } from "../utils/db";
+import { getClients, getGeneralTxs, getSettings, setSettings as dbSetSettings } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -12,17 +12,22 @@ import ScreenLayout from "../components/ScreenLayout";
 const ZAKAT_RATE = 0.025;
 
 export default function Zakat() {
-  const {
-    loaded,
-    activeFY,
-    customFYs,
-    nissabPrice,
-    setNissabPrice,
-    persistSettings,
-  } = useApp();
+  const { loaded, activeFY, customFYs } = useApp();
   const isFocused = useIsFocused();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
+  const [nissabPrice, setNissabPrice] = useState(85000);
+
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (!cancelled && s?.nissabPrice != null) setNissabPrice(Number(s.nissabPrice) || 85000);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [loaded]);
 
   useEffect(() => {
     if (!loaded || !isFocused || activeFY == null) return;
@@ -84,7 +89,9 @@ export default function Zakat() {
               style={[styles.input, { width: 130, textAlign: "center", fontSize: 14 }]}
               value={nissabPrice.toString()}
               onChangeText={(text) => setNissabPrice(Number(text) || 0)}
-              onBlur={() => persistSettings({ nissabPrice })}
+              onBlur={() => {
+                dbSetSettings({ nissabPrice }).catch(() => {});
+              }}
               keyboardType="numeric"
             />
             <Text style={styles.zakatNissabCurrency}>{CURRENCY}</Text>
