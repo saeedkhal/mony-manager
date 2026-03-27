@@ -2,14 +2,20 @@ import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
-import { getGeneralTxs } from "../utils/db";
+import { getGeneralTxs, deleteGeneralTx as dbDeleteGeneralTx } from "../utils/db";
 import { CURRENCY, GENERAL_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function General() {
-  const { loaded, activeFY, generalRefreshKey, deleteGeneralTx } = useApp();
+  const { loaded, activeFY, generalRefreshKey } = useApp();
+
+  const deleteGeneralTx = async (id) => {
+    try {
+      await dbDeleteGeneralTx(id);
+    } catch (_) {}
+  };
   const isFocused = useIsFocused();
   const [generalTxs, setGeneralTxs] = useState([]);
 

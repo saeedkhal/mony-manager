@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useDrizzleStudio } from "expo-drizzle-studio-plugin";
 import * as SQLite from "expo-sqlite";
 

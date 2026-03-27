@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getWorkers, getClients } from "../utils/db";
+import { getWorkers, getClients, deleteWorker as dbDeleteWorker } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -9,7 +9,13 @@ import WorkerDetail from "./WorkerDetail";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function Workers() {
-  const { loaded, setForm, setModal, deleteWorker } = useApp();
+  const { loaded, setForm, setModal } = useApp();
+
+  const deleteWorker = async (id) => {
+    try {
+      await dbDeleteWorker(id);
+    } catch (_) {}
+  };
   const [workers, setWorkers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);

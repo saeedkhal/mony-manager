@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getSuppliers, getClients } from "../utils/db";
+import { getSuppliers, getClients, deleteSupplier as dbDeleteSupplier } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -9,7 +9,13 @@ import SupplierDetail from "./SupplierDetail";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function Suppliers() {
-  const { loaded, setForm, setModal, deleteSupplier } = useApp();
+  const { loaded, setForm, setModal } = useApp();
+
+  const deleteSupplier = async (id) => {
+    try {
+      await dbDeleteSupplier(id);
+    } catch (_) {}
+  };
   const [suppliers, setSuppliers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);

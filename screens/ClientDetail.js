@@ -1,14 +1,59 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getClientWithTxs, getWorkers, getSuppliers } from "../utils/db";
-import { CURRENCY, STATUS_LABELS } from "../constants";
+import {
+  getClientWithTxs,
+  getWorkers,
+  getSuppliers,
+  upsertClient,
+  deleteClient as dbDeleteClient,
+} from "../utils/db";
+import { CURRENCY, STATUS_LABELS, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
-  const { activeFY, openClientTx, deleteClientTx, deleteClient, toggleStatus } = useApp();
+  const { activeFY, deleteClientTx, setForm, setModal } = useApp();
+
+  const openClientTx = (cid, txType, editTx = null) => {
+    if (editTx) {
+      setForm({
+        clientId: cid,
+        editTxId: editTx.id,
+        txType: editTx.type,
+        amount: editTx.amount,
+        cat: editTx.cat,
+        note: editTx.note || "",
+        date: editTx.date,
+        workerId: editTx.workerId,
+        supplierId: editTx.supplierId,
+      });
+    } else {
+      setForm({
+        clientId: cid,
+        txType,
+        cat: txType === "income" ? "مقدم" : CLIENT_EXPENSE_CATS[0],
+        date: new Date().toISOString().split("T")[0],
+      });
+    }
+    setModal("addClientTx");
+  };
+
+  const deleteClient = async (cid) => {
+    try {
+      await dbDeleteClient(cid);
+    } catch (_) {}
+  };
+
+  const toggleStatus = async (cid) => {
+    const c = await getClientWithTxs(cid);
+    if (!c) return;
+    const updated = { ...c, status: c.status === "active" ? "done" : "active" };
+    try {
+      await upsertClient(updated);
+    } catch (_) {}
+  };
   const [client, setClient] = useState(null);
   const [workers, setWorkers] = useState([]);
   const [suppliers, setSuppliers] = useState([]);

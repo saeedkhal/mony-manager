@@ -2,7 +2,18 @@ import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
 import CustomModal from "./Modal";
 import { useApp } from "../context/AppContext";
-import { getClients, getWorkers, getSuppliers } from "../utils/db";
+import {
+  getClients,
+  getWorkers,
+  getSuppliers,
+  getActiveFiscalYear,
+  getActiveFiscalYearId,
+  getClientWithTxs,
+  upsertClient,
+  upsertGeneralTx,
+  upsertWorker,
+  upsertSupplier,
+} from "../utils/db";
 import {
   CURRENCY,
   CLIENT_EXPENSE_CATS,
@@ -21,11 +32,9 @@ export default function Modals() {
     setShowClientPicker,
     loaded,
     activeFY,
-    saveClient,
-    saveClientTx,
-    saveGeneral,
-    saveWorker,
-    saveSupplier,
+    customFYs,
+    refreshClients,
+    refreshGeneral,
     persistSettings,
   } = useApp();
 
@@ -51,6 +60,126 @@ export default function Modals() {
       });
     return () => { cancelled = true; };
   }, [loaded, modal]);
+
+  const saveClient = async () => {
+    if (!form.name?.trim()) return;
+    await getActiveFiscalYear();
+    const fiscalYearId = await getActiveFiscalYearId();
+    const newClient = {
+      id: Date.now(),
+      name: form.name.trim(),
+      project: form.project || PROJECT_TYPES[0],
+      status: "active",
+      note: form.note || "",
+      fiscalYearId: fiscalYearId ?? null,
+      createdAt: new Date().toISOString().split("T")[0],
+      txs: [],
+    };
+    try {
+      await upsertClient(newClient);
+      refreshClients();
+    } catch (_) {}
+    setModal(null);
+    setForm({});
+  };
+
+  const saveClientTx = async () => {
+    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
+    const date = form.date || new Date().toISOString().split("T")[0];
+    const targetClientId = form.clientId;
+    const client = await getClientWithTxs(targetClientId);
+    if (!client) return;
+    const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
+    if (form.workerId) tx.workerId = form.workerId;
+    if (form.supplierId) tx.supplierId = form.supplierId;
+    let updatedClient;
+    if (form.editTxId) {
+      tx.id = form.editTxId;
+      updatedClient = {
+        ...client,
+        txs: (client.txs || []).map((t) => (t.id === form.editTxId ? tx : t)),
+      };
+    } else {
+      tx.id = Date.now();
+      updatedClient = { ...client, txs: [...(client.txs || []), tx] };
+    }
+    try {
+      await upsertClient(updatedClient);
+    } catch (_) {}
+    setModal(null);
+    setForm({});
+  };
+
+  const saveGeneral = async () => {
+    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
+    const date = form.date || new Date().toISOString().split("T")[0];
+    await getActiveFiscalYear();
+    const fiscalYearId = await getActiveFiscalYearId();
+    const tx = {
+      id: form.editTxId || Date.now(),
+      amount: Number(form.amount),
+      cat: form.cat || GENERAL_EXPENSE_CATS[0],
+      note: form.note || "",
+      date,
+      fiscalYearId: fiscalYearId ?? null,
+    };
+    try {
+      await upsertGeneralTx(tx);
+      refreshGeneral();
+    } catch (_) {}
+    setModal(null);
+    setForm({});
+  };
+
+  const saveWorker = async () => {
+    if (!form.name?.trim()) return;
+    if (form.editId) {
+      const list = await getWorkers();
+      const w = list.find((x) => x.id === form.editId);
+      if (!w) return;
+      const updated = { ...w, name: form.name.trim(), phone: form.phone || "" };
+      try {
+        await upsertWorker(updated);
+      } catch (_) {}
+    } else {
+      const newWorker = { id: Date.now(), name: form.name.trim(), phone: form.phone || "" };
+      try {
+        await upsertWorker(newWorker);
+      } catch (_) {}
+    }
+    setModal(null);
+    setForm({});
+  };
+
+  const saveSupplier = async () => {
+    if (!form.name?.trim()) return;
+    if (form.editId) {
+      const list = await getSuppliers();
+      const s = list.find((x) => x.id === form.editId);
+      if (!s) return;
+      const updated = {
+        ...s,
+        name: form.name.trim(),
+        phone: form.phone || "",
+        category: form.category || "",
+      };
+      try {
+        await upsertSupplier(updated);
+      } catch (_) {}
+    } else {
+      const newSupplier = {
+        id: Date.now(),
+        name: form.name.trim(),
+        phone: form.phone || "",
+        category: form.category || "",
+      };
+      try {
+        await upsertSupplier(newSupplier);
+      } catch (_) {}
+    }
+    setModal(null);
+    setForm({});
+  };
 
   const activeClient = clients.find((c) => c.id === form.clientId);
 

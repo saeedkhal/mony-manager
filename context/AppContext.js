@@ -2,29 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import { Animated, Dimensions } from "react-native";
 import { initState } from "../utils/storage";
 import {
-  getClientWithTxs,
-  getWorkers,
-  getSuppliers,
   getSettings,
-  getActiveFiscalYear,
-  getActiveFiscalYearId,
-  getFiscalYears,
   setActiveFiscalYear,
   addFiscalYearLabel,
   removeFiscalYearLabel,
-  upsertClient,
-  deleteClient as dbDeleteClient,
   deleteClientTx as dbDeleteClientTx,
-  upsertGeneralTx,
-  deleteGeneralTx as dbDeleteGeneralTx,
-  upsertWorker,
-  deleteWorker as dbDeleteWorker,
-  upsertSupplier,
-  deleteSupplier as dbDeleteSupplier,
   setSettings as dbSetSettings,
 } from "../utils/db";
 import { getCurrentFiscalYear } from "../utils/helpers";
-import { PROJECT_TYPES, CLIENT_EXPENSE_CATS, GENERAL_EXPENSE_CATS } from "../constants";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
@@ -76,187 +61,13 @@ export function AppProvider({ children }) {
     }).start(() => setShowDrawer(false));
   };
 
-  const saveClient = async () => {
-    if (!form.name?.trim()) return;
-    await getActiveFiscalYear(); // ensure active fiscal year row exists
-    const fiscalYearId = await getActiveFiscalYearId();
-    const newClient = {
-      id: Date.now(),
-      name: form.name.trim(),
-      project: form.project || PROJECT_TYPES[0],
-      status: "active",
-      note: form.note || "",
-      fiscalYearId: fiscalYearId ?? null,
-      createdAt: new Date().toISOString().split("T")[0],
-      txs: [],
-    };
-    try {
-      await upsertClient(newClient);
-      setClientsRefreshKey((k) => k + 1);
-    } catch (_) {}
-    setModal(null);
-    setForm({});
-  };
-
-  const saveClientTx = async () => {
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
-    const date = form.date || new Date().toISOString().split("T")[0];
-    const targetClientId = form.clientId;
-    const client = await getClientWithTxs(targetClientId);
-    if (!client) return;
-    const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
-    if (form.workerId) tx.workerId = form.workerId;
-    if (form.supplierId) tx.supplierId = form.supplierId;
-    let updatedClient;
-    if (form.editTxId) {
-      tx.id = form.editTxId;
-      updatedClient = {
-        ...client,
-        txs: (client.txs || []).map((t) => (t.id === form.editTxId ? tx : t)),
-      };
-    } else {
-      tx.id = Date.now();
-      updatedClient = { ...client, txs: [...(client.txs || []), tx] };
-    }
-    try {
-      await upsertClient(updatedClient);
-    } catch (_) {}
-    setModal(null);
-    setForm({});
-  };
-
-  const saveGeneral = async () => {
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
-    const date = form.date || new Date().toISOString().split("T")[0];
-    await getActiveFiscalYear();
-    const fiscalYearId = await getActiveFiscalYearId();
-    const tx = {
-      id: form.editTxId || Date.now(),
-      amount: Number(form.amount),
-      cat: form.cat || GENERAL_EXPENSE_CATS[0],
-      note: form.note || "",
-      date,
-      fiscalYearId: fiscalYearId ?? null,
-    };
-    try {
-      await upsertGeneralTx(tx);
-      setGeneralRefreshKey((k) => k + 1);
-    } catch (_) {}
-    setModal(null);
-    setForm({});
-  };
-
-  const saveWorker = async () => {
-    if (!form.name?.trim()) return;
-    if (form.editId) {
-      const list = await getWorkers();
-      const w = list.find((x) => x.id === form.editId);
-      if (!w) return;
-      const updated = { ...w, name: form.name.trim(), phone: form.phone || "" };
-      try {
-        await upsertWorker(updated);
-      } catch (_) {}
-    } else {
-      const newWorker = { id: Date.now(), name: form.name.trim(), phone: form.phone || "" };
-      try {
-        await upsertWorker(newWorker);
-      } catch (_) {}
-    }
-    setModal(null);
-    setForm({});
-  };
-
-  const saveSupplier = async () => {
-    if (!form.name?.trim()) return;
-    if (form.editId) {
-      const list = await getSuppliers();
-      const s = list.find((x) => x.id === form.editId);
-      if (!s) return;
-      const updated = {
-        ...s,
-        name: form.name.trim(),
-        phone: form.phone || "",
-        category: form.category || "",
-      };
-      try {
-        await upsertSupplier(updated);
-      } catch (_) {}
-    } else {
-      const newSupplier = {
-        id: Date.now(),
-        name: form.name.trim(),
-        phone: form.phone || "",
-        category: form.category || "",
-      };
-      try {
-        await upsertSupplier(newSupplier);
-      } catch (_) {}
-    }
-    setModal(null);
-    setForm({});
-  };
+  const refreshClients = () => setClientsRefreshKey((k) => k + 1);
+  const refreshGeneral = () => setGeneralRefreshKey((k) => k + 1);
 
   const deleteClientTx = async (cid, tid) => {
     try {
       await dbDeleteClientTx(cid, tid);
     } catch (_) {}
-  };
-
-  const deleteGeneralTx = async (id) => {
-    try {
-      await dbDeleteGeneralTx(id);
-    } catch (_) {}
-  };
-
-  const deleteClient = async (cid) => {
-    try {
-      await dbDeleteClient(cid);
-    } catch (_) {}
-  };
-
-  const toggleStatus = async (cid) => {
-    const client = await getClientWithTxs(cid);
-    if (!client) return;
-    const updated = { ...client, status: client.status === "active" ? "done" : "active" };
-    try {
-      await upsertClient(updated);
-    } catch (_) {}
-  };
-
-  const deleteWorker = async (id) => {
-    try {
-      await dbDeleteWorker(id);
-    } catch (_) {}
-  };
-
-  const deleteSupplier = async (id) => {
-    try {
-      await dbDeleteSupplier(id);
-    } catch (_) {}
-  };
-
-  const openClientTx = (cid, txType, editTx = null) => {
-    if (editTx) {
-      setForm({
-        clientId: cid,
-        editTxId: editTx.id,
-        txType: editTx.type,
-        amount: editTx.amount,
-        cat: editTx.cat,
-        note: editTx.note || "",
-        date: editTx.date,
-        workerId: editTx.workerId,
-        supplierId: editTx.supplierId,
-      });
-    } else {
-      setForm({
-        clientId: cid,
-        txType,
-        cat: txType === "income" ? "مقدم" : CLIENT_EXPENSE_CATS[0],
-        date: new Date().toISOString().split("T")[0],
-      });
-    }
-    setModal("addClientTx");
   };
 
   const handleFYChange = async (fy) => {
@@ -320,18 +131,9 @@ export function AppProvider({ children }) {
     setShowDrawer,
     closeDrawer,
     drawerAnimation,
-    saveClient,
-    saveClientTx,
-    saveGeneral,
-    saveWorker,
-    saveSupplier,
+    refreshClients,
+    refreshGeneral,
     deleteClientTx,
-    deleteClient,
-    deleteGeneralTx,
-    toggleStatus,
-    deleteWorker,
-    deleteSupplier,
-    openClientTx,
     handleFYChange,
     persistSettings,
   };
