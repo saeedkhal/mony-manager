@@ -9,7 +9,7 @@ import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function Clients() {
-  const { loaded, activeFY, clientsRefreshKey } = useApp();
+  const { loaded, activeFY, modal } = useApp();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
@@ -23,7 +23,7 @@ export default function Clients() {
       .catch(() => { if (!cancelled) setClients([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loaded, activeFY, clientsRefreshKey]);
+  }, [loaded, activeFY, modal]);
 
   const clientsWithYearTxs = clients || [];
 

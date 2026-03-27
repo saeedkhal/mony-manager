@@ -33,8 +33,6 @@ export default function Modals() {
     loaded,
     activeFY,
     customFYs,
-    refreshClients,
-    refreshGeneral,
     persistSettings,
   } = useApp();
 
@@ -77,7 +75,6 @@ export default function Modals() {
     };
     try {
       await upsertClient(newClient);
-      refreshClients();
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -125,7 +122,6 @@ export default function Modals() {
     };
     try {
       await upsertGeneralTx(tx);
-      refreshGeneral();
     } catch (_) {}
     setModal(null);
     setForm({});

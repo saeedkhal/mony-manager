@@ -9,7 +9,7 @@ import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
 export default function General() {
-  const { loaded, activeFY, generalRefreshKey } = useApp();
+  const { loaded, activeFY, modal } = useApp();
 
   const deleteGeneralTx = async (id) => {
     try {
@@ -26,7 +26,7 @@ export default function General() {
       .then((g) => { if (!cancelled) setGeneralTxs(g || []); })
       .catch(() => { if (!cancelled) setGeneralTxs([]); });
     return () => { cancelled = true; };
-  }, [loaded, isFocused, activeFY, generalRefreshKey]);
+  }, [loaded, isFocused, activeFY, modal]);
 
   const fyGeneralTxs = generalTxs || [];
 

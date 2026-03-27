@@ -20,12 +20,9 @@ export function AppProvider({ children }) {
   const [nissabPrice, setNissabPrice] = useState(85000);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
-  const [showFYPicker, setShowFYPicker] = useState(false);
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [clientsRefreshKey, setClientsRefreshKey] = useState(0);
-  const [generalRefreshKey, setGeneralRefreshKey] = useState(0);
   const drawerAnimation = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
 
   useEffect(() => {
@@ -61,9 +58,6 @@ export function AppProvider({ children }) {
     }).start(() => setShowDrawer(false));
   };
 
-  const refreshClients = () => setClientsRefreshKey((k) => k + 1);
-  const refreshGeneral = () => setGeneralRefreshKey((k) => k + 1);
-
   const deleteClientTx = async (cid, tid) => {
     try {
       await dbDeleteClientTx(cid, tid);
@@ -72,7 +66,6 @@ export function AppProvider({ children }) {
 
   const handleFYChange = async (fy) => {
     setActiveFY(fy);
-    setShowFYPicker(false);
     try {
       await setActiveFiscalYear(fy);
     } catch (_) {}
@@ -111,8 +104,6 @@ export function AppProvider({ children }) {
 
   const value = {
     loaded,
-    clientsRefreshKey,
-    generalRefreshKey,
     modal,
     setModal,
     form,
@@ -123,16 +114,12 @@ export function AppProvider({ children }) {
     setCustomFYs,
     nissabPrice,
     setNissabPrice,
-    showFYPicker,
-    setShowFYPicker,
     showClientPicker,
     setShowClientPicker,
     showDrawer,
     setShowDrawer,
     closeDrawer,
     drawerAnimation,
-    refreshClients,
-    refreshGeneral,
     deleteClientTx,
     handleFYChange,
     persistSettings,

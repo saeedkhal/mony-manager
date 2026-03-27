@@ -4,10 +4,8 @@ import { View, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useRef } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
-import { getClients, getGeneralTxs } from "./utils/db";
-import { useAppData } from "./hooks/useAppData";
 import Header from "./components/Header";
 import HeaderActions from "./components/HeaderActions";
 import Drawer from "./components/Drawer";
@@ -32,32 +30,8 @@ function AppContent() {
     closeDrawer,
     drawerAnimation,
     activeFY,
-    showFYPicker,
-    setShowFYPicker,
     handleFYChange,
-    customFYs,
   } = useApp();
-  const [clients, setClients] = useState([]);
-  const [generalTxs, setGeneralTxs] = useState([]);
-
-  useEffect(() => {
-    if (!loaded || activeFY == null) return;
-    let cancelled = false;
-    Promise.all([getClients(), getGeneralTxs(activeFY)])
-      .then(([c, g]) => {
-        if (!cancelled) {
-          setClients(c || []);
-          setGeneralTxs(g || []);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setClients([]);
-        if (!cancelled) setGeneralTxs([]);
-      });
-    return () => { cancelled = true; };
-  }, [loaded, activeFY]);
-
-  const { allFYs } = useAppData(clients, generalTxs, [], [], activeFY, customFYs);
 
   const onNavStateChange = (state) => {
     if (!state) return;
@@ -93,9 +67,6 @@ function AppContent() {
           onMenuPress={() => setShowDrawer(true)}
           title="🏪 مول عموله"
           activeFY={activeFY}
-          allFYs={allFYs}
-          showFYPicker={showFYPicker}
-          onToggleFYPicker={() => setShowFYPicker((p) => !p)}
           onFYChange={handleFYChange}
           getCurrentFiscalYear={getCurrentFiscalYear}
           getFiscalYearLabel={getFiscalYearLabel}

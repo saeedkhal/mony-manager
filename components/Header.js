@@ -5,7 +5,6 @@ export default function Header({
   onMenuPress,
   title,
   activeFY,
-  onToggleFYPicker,
   onFYChange,
   getCurrentFiscalYear,
   getFiscalYearLabel,
@@ -24,9 +23,9 @@ export default function Header({
       <View style={styles.fySelector}>
         <Text style={styles.fyLabel}>السنة المالية:</Text>
         <View style={styles.fyPickerContainer}>
-          <TouchableOpacity style={styles.fyPickerBtn} onPress={onToggleFYPicker}>
+          <View style={styles.fyPickerBtn}>
             <Text style={styles.fyPickerText}>📅 {activeFY}</Text>
-          </TouchableOpacity>
+          </View>
         </View>
         <Text style={styles.fyLabelSub}>{getFiscalYearLabel(activeFY)}</Text>
         {activeFY !== getCurrentFiscalYear() && (
