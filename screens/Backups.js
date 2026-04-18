@@ -63,7 +63,6 @@ export default function Backups() {
   const projectNameForProxy = getExpoProjectFullName() || undefined;
   const oauthRedirectUri = getGoogleOAuthRedirectUri();
 
-  console.log('oauthRedirectUri=', oauthRedirectUri);
   const [request, response, promptAsync] = Google.useAuthRequest(
     {
       androidClientId,
@@ -73,7 +72,7 @@ export default function Backups() {
       extraParams: { access_type: "offline" },
       ...(oauthRedirectUri ? { redirectUri: oauthRedirectUri } : {}),
     },
-    // v7 ignores unknown keys on makeRedirectUri; we still pass redirectUri above. Expo Go only.
+    // projectNameForProxy: Expo Go auth.expo.io only.
     expoGoGoogleWebOAuth() && projectNameForProxy ? { projectNameForProxy } : {}
   );
 
@@ -112,12 +111,6 @@ export default function Backups() {
   }, [loaded, refreshLocalAuthFlag]);
 
   useEffect(() => {
-    if (!__DEV__ || !expoGoGoogleWebOAuth() || !oauthRedirectUri) return;
-    // Same URL as legacy makeRedirectUri({ useProxy: true, projectNameForProxy }) — removed in expo-auth-session@7
-    console.log("[Google OAuth] redirectUri:", oauthRedirectUri, "projectNameForProxy:", projectNameForProxy);
-  }, [oauthRedirectUri, projectNameForProxy]);
-
-  useEffect(() => {
     if (!loaded) return;
     if (response?.type === "success" && response.authentication) {
       persistTokenResponse(response.authentication).then(() => {
@@ -125,7 +118,18 @@ export default function Backups() {
         loadList();
       });
     } else if (response?.type === "error") {
-      Alert.alert("Google", response.error?.message || "فشل تسجيل الدخول");
+      const oauthCode = response.error?.params?.error;
+      if (oauthCode === "access_denied") {
+        Alert.alert(
+          "Google — تم رفض الوصول",
+          "غالبًا السبب إعدادات موافقة Google وليس التطبيق نفسه:\n\n" +
+            "• لو شاشة الموافقة (OAuth consent) على وضع Testing: أضف البريد الذي تسجّل به ضمن Test users.\n" +
+            "• من APIs & Services → OAuth consent screen تأكد أن نطاق Drive مسموح (Scopes).\n" +
+            "• لو ضغطت إلغاء أو رفض في نافذة Google، حاول مرة أخرى واقبل الصلاحيات."
+        );
+      } else {
+        Alert.alert("Google", response.error?.message || "فشل تسجيل الدخول");
+      }
     }
   }, [response, loaded, refreshLocalAuthFlag, loadList]);
 
