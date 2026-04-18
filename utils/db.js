@@ -1043,3 +1043,36 @@ export async function setSettings(settings) {
     throw e;
   }
 }
+
+/**
+ * Serialized payload for cloud backup: SQLite bytes on native; JSON snapshot on web.
+ * @returns {Promise<{ bytes: Uint8Array, extension: string } | null>}
+ */
+export async function getDatabaseBackupPayload() {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return null;
+      const payload = {
+        v: 1,
+        exportedAt: new Date().toISOString(),
+        clients: state.clients || [],
+        generalTxs: state.generalTxs || [],
+        workers: state.workers || [],
+        suppliers: state.suppliers || [],
+        activeFY: state.activeFY ?? null,
+        activeFiscalYearId: state.activeFiscalYearId ?? null,
+        customFYs: state.customFYs || [],
+        nissabPrice: state.nissabPrice != null ? state.nissabPrice : 85000,
+      };
+      const json = JSON.stringify(payload);
+      return { bytes: new TextEncoder().encode(json), extension: "json" };
+    }
+    const bytes = await runDb(async (database) => database.serializeAsync("main"));
+    return { bytes, extension: "db" };
+  } catch (e) {
+    console.warn("getDatabaseBackupPayload error:", e?.message || e);
+    clearDbOnError(e);
+    throw e;
+  }
+}

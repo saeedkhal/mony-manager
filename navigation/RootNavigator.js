@@ -7,6 +7,7 @@ import Suppliers from "../screens/Suppliers";
 import General from "../screens/General";
 import Zakat from "../screens/Zakat";
 import FiscalYear from "../screens/FiscalYear";
+import Backups from "../screens/Backups";
 
 const Stack = createNativeStackNavigator();
 
@@ -29,6 +30,7 @@ export default function RootNavigator() {
       <Stack.Screen name="general" component={General} />
       <Stack.Screen name="zakat" component={Zakat} />
       <Stack.Screen name="fiscalyear" component={FiscalYear} />
+      <Stack.Screen name="backups" component={Backups} />
     </Stack.Navigator>
   );
 }

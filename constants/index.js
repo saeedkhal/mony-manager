@@ -29,4 +29,5 @@ export const NAV_ITEMS = [
   ["general", "🏢", "مصروفات عامة"],
   ["zakat", "🌙", "الزكاة"],
   ["fiscalyear", "📅", "السنة المالية"],
+  ["backups", "☁️", "نسخ Google Drive"],
 ];

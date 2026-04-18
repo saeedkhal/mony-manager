@@ -1,4 +1,5 @@
 import { I18nManager } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 import { StatusBar } from "expo-status-bar";
 import { View, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,6 +15,8 @@ import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
 import { ensureFiscalYearLabel } from "./utils/db";
 import styles from "./styles/AppStyles";
 import DrizzleStudio from "./components/DrizzleStudio";
+
+WebBrowser.maybeCompleteAuthSession();
 
 I18nManager.forceRTL(true);
 I18nManager.allowRTL(true);
