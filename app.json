@@ -7,10 +7,10 @@
     "sdkVersion": "54.0.0",
     "scheme": "com.saeedkhaled.omola",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/omola.jpg",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/omola.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -21,9 +21,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/omola.jpg"
       },
       "package": "com.saeedkhaled.omola",
       "intentFilters": [
@@ -44,7 +42,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/omola.jpg"
     },
     "plugins": [
       "expo-sqlite",

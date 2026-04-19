@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { getGeneralTxs, deleteGeneralTx as dbDeleteGeneralTx, getActiveFiscalYear, getActiveFiscalYearId, upsertGeneralTx } from "../utils/db";
-import { CURRENCY, GENERAL_INCOME_CATS } from "../constants";
+import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
@@ -12,7 +12,6 @@ import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
 
 const INCOME_COLOR = "#10b981";
-const INCOME_CAT_SET = new Set(GENERAL_INCOME_CATS);
 
 function txAmount(t) {
   const n = Number(t.amount);
@@ -54,7 +53,7 @@ export default function GeneralIncome() {
     const tx = {
       id: form.editTxId || Date.now(),
       amount: Number(form.amount),
-      cat: form.cat || GENERAL_INCOME_CATS[0],
+      cat: "",
       note: form.note || "",
       date,
       fiscalYearId: fiscalYearId ?? null,
@@ -71,18 +70,10 @@ export default function GeneralIncome() {
     setForm({});
   };
 
-  const { totalAllIncome, uncategorizedIncome, perCatTotals } = useMemo(() => {
-    const perCatTotals = Object.fromEntries(GENERAL_INCOME_CATS.map((c) => [c, 0]));
-    let totalAllIncome = 0;
-    let uncategorizedIncome = 0;
-    for (const t of generalTxs) {
-      const amt = txAmount(t);
-      totalAllIncome += amt;
-      if (INCOME_CAT_SET.has(t.cat)) perCatTotals[t.cat] += amt;
-      else uncategorizedIncome += amt;
-    }
-    return { totalAllIncome, uncategorizedIncome, perCatTotals };
-  }, [generalTxs]);
+  const totalAllIncome = useMemo(
+    () => generalTxs.reduce((sum, t) => sum + txAmount(t), 0),
+    [generalTxs]
+  );
 
   return (
     <>
@@ -92,7 +83,6 @@ export default function GeneralIncome() {
             style={[styles.btn, styles.btnGeneralIncome, { marginBottom: 16, alignSelf: "flex-start" }]}
             onPress={() => {
               setForm({
-                cat: GENERAL_INCOME_CATS[0],
                 date: new Date().toISOString().split("T")[0],
               });
               setModal("addGeneralIncome");
@@ -120,49 +110,6 @@ export default function GeneralIncome() {
               <Text style={styles.generalStatCurrency}>{CURRENCY}</Text>
             </View>
           ) : null}
-          <View style={styles.generalStatsGrid}>
-            {GENERAL_INCOME_CATS.map((cat) => {
-              const total = perCatTotals[cat];
-              return total > 0 ? (
-                <View
-                  key={cat}
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: "rgba(16,185,129,0.07)",
-                      borderColor: "rgba(16,185,129,0.2)",
-                      alignItems: "center",
-                      minWidth: 150,
-                      flex: 1,
-                    },
-                  ]}
-                >
-                  <Text style={styles.generalStatLabel}>{cat}</Text>
-                  <Text style={[styles.generalStatValue, { color: INCOME_COLOR }]}>{fmt(total)}</Text>
-                  <Text style={styles.generalStatCurrency}>{CURRENCY}</Text>
-                </View>
-              ) : null;
-            })}
-            {uncategorizedIncome > 0 ? (
-              <View
-                key="__uncategorized_income"
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: "rgba(245,158,11,0.08)",
-                    borderColor: "rgba(245,158,11,0.25)",
-                    alignItems: "center",
-                    minWidth: 150,
-                    flex: 1,
-                  },
-                ]}
-              >
-                <Text style={styles.generalStatLabel}>فئات غير مدرجة</Text>
-                <Text style={[styles.generalStatValue, { color: "#f59e0b" }]}>{fmt(uncategorizedIncome)}</Text>
-                <Text style={styles.generalStatCurrency}>{CURRENCY}</Text>
-              </View>
-            ) : null}
-          </View>
           {generalTxs.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>💵</Text>
@@ -176,11 +123,6 @@ export default function GeneralIncome() {
                 <View key={t.id} style={[styles.txItem, { borderColor: "rgba(16,185,129,0.2)" }]}>
                   <Text style={styles.txIcon}>💵</Text>
                   <View style={styles.txContent}>
-                    <View style={styles.txTags}>
-                      <View style={[styles.tag, { backgroundColor: "rgba(16,185,129,0.15)" }]}>
-                        <Text style={[styles.tagText, { color: INCOME_COLOR }]}>{t.cat}</Text>
-                      </View>
-                    </View>
                     {noteText ? (
                       <Text style={[styles.txNote, { marginTop: 6, alignSelf: "flex-start" }]}>{noteText}</Text>
                     ) : null}
@@ -211,23 +153,6 @@ export default function GeneralIncome() {
             onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
             keyboardType="numeric"
           />
-        </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>الفئة</Text>
-          <View style={styles.optionsGrid}>
-            {GENERAL_INCOME_CATS.map((cat) => (
-              <TouchableOpacity
-                key={cat}
-                style={[
-                  styles.optionBtn,
-                  form.cat === cat && [styles.optionBtnActive, { backgroundColor: INCOME_COLOR }],
-                ]}
-                onPress={() => setForm((p) => ({ ...p, cat }))}
-              >
-                <Text style={[styles.optionBtnText, form.cat === cat && styles.optionBtnTextActive]}>{cat}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
