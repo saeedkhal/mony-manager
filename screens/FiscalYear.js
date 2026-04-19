@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getFiscalYears, addFiscalYearLabel } from "../utils/db";
 import { getFiscalYearLabel } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
+import FormTextInput from "../components/FormTextInput";
 
 export default function FiscalYear() {
   const {
@@ -99,8 +100,8 @@ export default function FiscalYear() {
         <Text style={styles.modalTitle}>📅 إضافة سنة مالية</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>السنة المالية (مثال: 2025/2026)</Text>
-          <TextInput
-            style={styles.input}
+          <FormTextInput
+            styles={styles}
             placeholder="2025/2026"
             placeholderTextColor="#64748b"
             value={customFY}

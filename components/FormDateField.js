@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TextInput, TouchableOpacity, Platform } from "react-native";
+import { View, Text, TouchableOpacity, Platform } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import FormTextInput from "./FormTextInput";
 
 /**
  * Date field for forms: Android system date picker, iOS text field (YYYY-MM-DD).
- * @param {object} styles - App styles with inputGroup, inputLabel, input
+ * @param {object} styles - App styles with inputGroup, inputLabel, input, inputFocused
  * @param {string} [label]
  * @param {string} [value] - YYYY-MM-DD or empty
  * @param {(ymd: string) => void} onChangeValue
@@ -39,7 +40,11 @@ export default function FormDateField({ styles: S, label = "التاريخ", val
       <Text style={S.inputLabel}>{label}</Text>
       {Platform.OS === "android" ? (
         <>
-          <TouchableOpacity style={S.input} activeOpacity={0.75} onPress={() => setShowPicker(true)}>
+          <TouchableOpacity
+            style={[S.input, showPicker && S.inputFocused]}
+            activeOpacity={0.75}
+            onPress={() => setShowPicker(true)}
+          >
             <Text style={{ color: value ? "#f1f5f9" : "#64748b", fontSize: 15 }}>
               {value || "اختر التاريخ"}
             </Text>
@@ -58,8 +63,8 @@ export default function FormDateField({ styles: S, label = "التاريخ", val
           ) : null}
         </>
       ) : (
-        <TextInput
-          style={S.input}
+        <FormTextInput
+          styles={S}
           placeholder="YYYY-MM-DD"
           placeholderTextColor="#64748b"
           value={value || ""}

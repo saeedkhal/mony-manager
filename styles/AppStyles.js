@@ -467,13 +467,17 @@ export default StyleSheet.create({
   input: {
     width: "100%",
     backgroundColor: "rgba(255,255,255,0.07)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.13)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.12)",
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
     color: "#f1f5f9",
     fontSize: 15,
+  },
+  inputFocused: {
+    borderColor: "#818cf8",
+    backgroundColor: "rgba(129,140,248,0.08)",
   },
   optionsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   optionBtn: {

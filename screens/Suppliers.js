@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getSuppliers, getClients, deleteSupplier as dbDeleteSupplier, upsertSupplier } from "../utils/db";
 import { CURRENCY } from "../constants";
@@ -91,8 +91,8 @@ export default function Suppliers() {
       <Text style={styles.modalTitle}>🏭 {form.editId ? "تعديل" : "إضافة"} مورد</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>اسم المورد</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="مثال: مورد الأخشاب"
           placeholderTextColor="#64748b"
           value={form.name || ""}
@@ -101,8 +101,8 @@ export default function Suppliers() {
       </View>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>الفئة (اختياري)</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="مثال: قماش، خشب"
           placeholderTextColor="#64748b"
           value={form.category || ""}
@@ -111,8 +111,8 @@ export default function Suppliers() {
       </View>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>رقم التليفون (اختياري)</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="01xxxxxxxxx"
           placeholderTextColor="#64748b"
           value={form.phone || ""}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { getGeneralTxs, deleteGeneralTx as dbDeleteGeneralTx, getActiveFiscalYear, getActiveFiscalYearId, upsertGeneralTx } from "../utils/db";
@@ -9,6 +9,7 @@ import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
+import FormTextInput from "../components/FormTextInput";
 
 export default function General() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
@@ -138,8 +139,8 @@ export default function General() {
         <Text style={styles.modalTitle}>🏢 مصروف عام — {activeFiscalYearLabel}</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
-          <TextInput
-            style={styles.input}
+          <FormTextInput
+            styles={styles}
             placeholder="0"
             placeholderTextColor="#64748b"
             value={form.amount?.toString() || ""}
@@ -168,8 +169,8 @@ export default function General() {
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
-          <TextInput
-            style={styles.input}
+          <FormTextInput
+            styles={styles}
             placeholder=""
             placeholderTextColor="#64748b"
             value={form.note || ""}

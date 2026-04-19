@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getClients, getActiveFiscalYear, getActiveFiscalYearId, upsertClient } from "../utils/db";
 import { STATUS_LABELS, PROJECT_TYPES } from "../constants";
@@ -8,6 +8,7 @@ import styles from "../styles/AppStyles";
 import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
+import FormTextInput from "../components/FormTextInput";
 
 export default function Clients() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
@@ -63,8 +64,8 @@ export default function Clients() {
       <Text style={styles.modalTitle}>👤 إضافة عميل جديد</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>اسم العميل</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="مثال: أحمد محمد"
           placeholderTextColor="#64748b"
           value={form.name || ""}
@@ -73,8 +74,8 @@ export default function Clients() {
       </View>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="أي تفاصيل إضافية"
           placeholderTextColor="#64748b"
           value={form.note || ""}

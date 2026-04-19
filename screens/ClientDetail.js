@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import {
   getClientWithTxs,
@@ -14,6 +14,7 @@ import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
+import FormTextInput from "../components/FormTextInput";
 
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
   const { activeFiscalYearLabel, deleteClientTx, setForm, setModal, modal, form } = useApp();
@@ -326,8 +327,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="0"
           placeholderTextColor="#64748b"
           value={form.amount?.toString() || ""}
@@ -421,8 +422,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         )}
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder=""
           placeholderTextColor="#64748b"
           value={form.note || ""}

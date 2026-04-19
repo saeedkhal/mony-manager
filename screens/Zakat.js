@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput } from "react-native";
+import { View, Text } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
@@ -8,6 +8,7 @@ import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
+import FormTextInput from "../components/FormTextInput";
 
 const ZAKAT_RATE = 0.025;
 
@@ -85,8 +86,9 @@ export default function Zakat() {
             <Text style={styles.zakatNissabSubtext}>حدّث القيمة حسب سعر الذهب الحالي</Text>
           </View>
           <View style={styles.zakatNissabInput}>
-            <TextInput
-              style={[styles.input, { width: 130, textAlign: "center", fontSize: 14 }]}
+            <FormTextInput
+              styles={styles}
+              style={{ width: 130, textAlign: "center", fontSize: 14 }}
               value={nissabPrice.toString()}
               onChangeText={(text) => setNissabPrice(Number(text) || 0)}
               onBlur={() => {

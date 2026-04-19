@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getWorkers, getClients, deleteWorker as dbDeleteWorker, upsertWorker } from "../utils/db";
 import { CURRENCY } from "../constants";
@@ -8,6 +8,7 @@ import styles from "../styles/AppStyles";
 import WorkerDetail from "./WorkerDetail";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
+import FormTextInput from "../components/FormTextInput";
 
 export default function Workers() {
   const { loaded, modal, setForm, setModal, form } = useApp();
@@ -85,8 +86,8 @@ export default function Workers() {
       <Text style={styles.modalTitle}>👷 {form.editId ? "تعديل" : "إضافة"} صنايعي</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>الاسم</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="مثال: عمرو"
           placeholderTextColor="#64748b"
           value={form.name || ""}
@@ -95,8 +96,8 @@ export default function Workers() {
       </View>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>رقم التليفون (اختياري)</Text>
-        <TextInput
-          style={styles.input}
+        <FormTextInput
+          styles={styles}
           placeholder="01xxxxxxxxx"
           placeholderTextColor="#64748b"
           value={form.phone || ""}
