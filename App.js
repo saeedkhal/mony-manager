@@ -67,7 +67,7 @@ function AppContent() {
         <StatusBar style="dark" backgroundColor={systemBarColor} />
         <Header
           onMenuPress={() => setShowDrawer(true)}
-          title="🏪 مول عموله"
+          title="مول عمولة"
           activeFiscalYearLabel={activeFiscalYearLabel}
           onResetToCurrentFiscalYear={async () => {
             const id = await ensureFiscalYearLabel(getCurrentFiscalYear());

@@ -1,5 +1,7 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
+
+const LOGO = require("../assets/omola.jpg");
 
 export default function Header({
   onMenuPress,
@@ -16,8 +18,13 @@ export default function Header({
         <TouchableOpacity style={styles.menuButton} onPress={onMenuPress}>
           <Text style={styles.menuIcon}>☰</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>{title}</Text>
-        {headerActions && <View style={styles.headerActions}>{headerActions}</View>}
+        <View style={styles.titleWrap}>
+          <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+            {title}
+          </Text>
+        </View>
+        <Image source={LOGO} style={styles.brandLogo} resizeMode="cover" />
+        {headerActions ? <View style={styles.headerActions}>{headerActions}</View> : null}
       </View>
 
       <View style={styles.fySelector}>
@@ -48,30 +55,48 @@ const styles = StyleSheet.create({
   headerTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    flexWrap: "wrap",
+    width: "100%",
+    flexWrap: "nowrap",
+    gap: 10,
   },
   menuButton: {
     padding: 8,
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
   },
   menuIcon: {
     fontSize: 24,
     color: "#818cf8",
     fontWeight: "bold",
   },
+  titleWrap: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+    paddingHorizontal: 4,
+  },
+  brandLogo: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    flexShrink: 0,
+  },
   title: {
-    fontSize: 20,
+    width: "100%",
+    fontSize: 22,
     fontWeight: "800",
     color: "#818cf8",
-    flex: 1,
     textAlign: "center",
   },
   headerActions: {
     flexDirection: "row",
     gap: 8,
     flexWrap: "wrap",
+    flexShrink: 0,
   },
   fySelector: {
     flexDirection: "row",
