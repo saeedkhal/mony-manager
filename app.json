@@ -2,8 +2,10 @@
   "expo": {
     "name": "MyApp",
     "slug": "MyApp",
+    "owner": "saeedkhaled",
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
+    "scheme": "com.saeedkhaled.omola",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +15,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.saeedkhaled.omola"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,13 +25,31 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.anonymous.MyApp"
+      "package": "com.saeedkhaled.omola",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
+              "scheme": "com.saeedkhaled.omola",
+              "pathPrefix": "/oauthredirect"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0011d29b-c67b-4e40-ba90-e342fe311731"
+      }
+    }
   }
 }

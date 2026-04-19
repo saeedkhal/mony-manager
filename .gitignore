@@ -31,13 +31,11 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
 *.tsbuildinfo
 
-# generated native folders
+# generated native folders (prebuild). `android/` is tracked for AndroidManifest / native tweaks.
 /ios
-/android
-
-.env
