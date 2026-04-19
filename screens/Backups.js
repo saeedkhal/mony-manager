@@ -221,7 +221,7 @@ export default function Backups() {
           <Text style={styles.backupHint}>
             أضف معرّفات OAuth في بيئة البناء: EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID،
             EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID، و EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID للويب. فعّل Google Drive API
-            في Google Cloud، وأضف عنوان إعادة التوجيه: com.saeedkhaled.MyApp:/oauthredirect
+            في Google Cloud، وأضف عنوان إعادة التوجيه: com.saeedkhaled.omola:/oauthredirect
           </Text>
         )}
 
@@ -235,7 +235,9 @@ export default function Backups() {
 
         {configured && Platform.OS !== "web" && !isExpoGo() && (
           <Text style={styles.backupHint}>
-            في build مُثبّت (development / production) استخدم Android أو iOS OAuth client مع SHA-1 / Bundle ID.
+            Android: تأكد من OAuth client (Android) بنفس Package و SHA-1 للتوقيع المستخدم في الـ APK. في Google Cloud أنشئ
+            أيضًا OAuth client من نوع Web وأضف في Authorized redirect URIs بالضبط:{" "}
+            {oauthRedirectUri || "com.saeedkhaled.omola:/oauthredirect"} ثم أعد بناء التطبيق وتثبيته.
           </Text>
         )}
 

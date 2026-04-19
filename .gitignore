@@ -37,6 +37,5 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# generated native folders
+# generated native folders (prebuild). `android/` is tracked for AndroidManifest / native tweaks.
 /ios
-/android

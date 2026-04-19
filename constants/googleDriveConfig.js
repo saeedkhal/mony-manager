@@ -1,4 +1,6 @@
+import * as Application from "expo-application";
 import * as AuthSession from "expo-auth-session";
+import Constants from "expo-constants";
 import { NativeModules, Platform } from "react-native";
 
 /**
@@ -41,7 +43,7 @@ export function getGoogleOAuthClientIds() {
   };
 }
 
-/** Reads Expo native shell info without importing expo-constants (avoids Metro/bundling issues). */
+/** Reads Expo native shell info from the native module (manifest JSON when embedded). */
 function getExponentConstants() {
   return NativeModules.ExponentConstants;
 }
@@ -68,8 +70,17 @@ export function getExpoAppSlug() {
   return "MyApp";
 }
 
-/** Android applicationId / iOS bundleIdentifier from embedded manifest (no expo-application import). */
+/** Android applicationId / iOS bundleIdentifier (expo-constants first, then embedded manifest). */
 function getNativeApplicationIdFromManifest() {
+  const cfg = Constants.expoConfig;
+  const fromConstants =
+    Platform.OS === "android"
+      ? cfg?.android?.package
+      : Platform.OS === "ios"
+        ? cfg?.ios?.bundleIdentifier
+        : cfg?.android?.package || cfg?.ios?.bundleIdentifier;
+  if (typeof fromConstants === "string" && fromConstants.length > 0) return fromConstants;
+
   const manifest = parseManifestObject();
   if (!manifest || typeof manifest !== "object") return null;
   const androidPkg = manifest.android && typeof manifest.android.package === "string" ? manifest.android.package : null;
@@ -144,18 +155,16 @@ export function getGoogleOAuthRedirectUri() {
     }
   }
 
-  // Development client / standalone / bare: same redirect as Google.useAuthRequest default
-  // (`{applicationId}:/oauthredirect`). Passing it explicitly avoids exp:// fallbacks and URL edge cases.
+  // Dev client (expo-dev-client) uses executionEnvironment "storeClient"; `makeRedirectUri({ native })`
+  // ignores `native` there and falls back to exp:// — Google then cannot reopen the app. Use the real
+  // application id + path (same as expo-auth-session/providers/google default on native).
   if (Platform.OS !== "web") {
-    const appId = getNativeApplicationIdFromManifest();
+    const appId =
+      typeof Application.applicationId === "string" && Application.applicationId.length > 0
+        ? Application.applicationId
+        : getNativeApplicationIdFromManifest();
     if (!appId) return undefined;
-    try {
-      return AuthSession.makeRedirectUri({
-        native: `${appId}:/oauthredirect`,
-      });
-    } catch {
-      return undefined;
-    }
+    return `${appId}:/oauthredirect`;
   }
 
   return undefined;

@@ -5,7 +5,7 @@
     "owner": "saeedkhaled",
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
-    "scheme": "com.saeedkhaled.MyApp",
+    "scheme": "com.saeedkhaled.omola",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -16,7 +16,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.saeedkhaled.MyApp"
+      "bundleIdentifier": "com.saeedkhaled.omola"
     },
     "android": {
       "adaptiveIcon": {
@@ -25,7 +25,20 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.saeedkhaled.MyApp"
+      "package": "com.saeedkhaled.omola",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
+              "scheme": "com.saeedkhaled.omola",
+              "pathPrefix": "/oauthredirect"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
