@@ -39,6 +39,15 @@ export function useAppData(
     return generalTxs.filter((t) => Number(t.fiscalYearId) === id);
   }, [generalTxs, activeFiscalYearId]);
 
+  const fyGeneralExpTxs = useMemo(
+    () => fyGeneralTxs.filter((t) => t.txKind !== "income"),
+    [fyGeneralTxs],
+  );
+  const fyGeneralIncTxs = useMemo(
+    () => fyGeneralTxs.filter((t) => t.txKind === "income"),
+    [fyGeneralTxs],
+  );
+
   const clientTotals = (c) => {
     const income = c.txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
     const expense = c.txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
@@ -47,8 +56,9 @@ export function useAppData(
 
   const totalIncome = useMemo(() => fyClients.reduce((s, c) => s + clientTotals(c).income, 0), [fyClients]);
   const totalClientExp = useMemo(() => fyClients.reduce((s, c) => s + clientTotals(c).expense, 0), [fyClients]);
-  const totalGenExp = useMemo(() => fyGeneralTxs.reduce((s, t) => s + t.amount, 0), [fyGeneralTxs]);
-  const netProfit = totalIncome - totalClientExp - totalGenExp;
+  const totalGenExp = useMemo(() => fyGeneralExpTxs.reduce((s, t) => s + t.amount, 0), [fyGeneralExpTxs]);
+  const totalGenIncome = useMemo(() => fyGeneralIncTxs.reduce((s, t) => s + t.amount, 0), [fyGeneralIncTxs]);
+  const netProfit = totalIncome + totalGenIncome - totalClientExp - totalGenExp;
 
   const monthlyData = useMemo(() => {
     const sy = getStartYearFromFiscalLabel(activeFiscalYearLabel);
@@ -68,13 +78,18 @@ export function useAppData(
         }
       }),
     );
-    fyGeneralTxs.forEach((t) => {
+    fyGeneralExpTxs.forEach((t) => {
       const mk = t.date?.slice(0, 7);
       const m = months.find((x) => x.key === mk);
       if (m) m.مصروف += t.amount;
     });
+    fyGeneralIncTxs.forEach((t) => {
+      const mk = t.date?.slice(0, 7);
+      const m = months.find((x) => x.key === mk);
+      if (m) m.دخل += t.amount;
+    });
     return months.filter((m) => m.دخل > 0 || m.مصروف > 0);
-  }, [fyClients, fyGeneralTxs, activeFiscalYearLabel]);
+  }, [fyClients, fyGeneralExpTxs, fyGeneralIncTxs, activeFiscalYearLabel]);
 
   const workerStats = useMemo(
     () =>
@@ -122,10 +137,13 @@ export function useAppData(
     allFYs,
     fyClients,
     fyGeneralTxs,
+    fyGeneralExpTxs,
+    fyGeneralIncTxs,
     clientTotals,
     totalIncome,
     totalClientExp,
     totalGenExp,
+    totalGenIncome,
     netProfit,
     monthlyData,
     workerStats,

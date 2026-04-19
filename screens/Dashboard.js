@@ -51,11 +51,11 @@ export default function Dashboard() {
   const appData = useAppData(clients, generalTxs, [], [], activeFiscalYearId, activeFiscalYearLabel);
   const {
     fyClients,
-    fyGeneralTxs,
     clientTotals,
     totalIncome,
     totalClientExp,
     totalGenExp,
+    totalGenIncome,
     netProfit,
     monthlyData,
   } = appData;
@@ -92,6 +92,7 @@ export default function Dashboard() {
       bg: "rgba(16,185,129,0.08)",
     },
     { label: "إجمالي الدخل", val: totalIncome, icon: "📈", color: "#818cf8", bg: "rgba(129,140,248,0.08)" },
+    { label: "دخل عام", val: totalGenIncome, icon: "💵", color: "#10b981", bg: "rgba(16,185,129,0.08)" },
     { label: "مصروفات العملاء", val: totalClientExp, icon: "🔨", color: "#fb923c", bg: "rgba(251,146,60,0.08)" },
     { label: "مصروفات عامة", val: totalGenExp, icon: "🏢", color: "#f43f5e", bg: "rgba(244,63,94,0.08)" },
   ];
@@ -177,7 +178,7 @@ export default function Dashboard() {
         </View>
       )}
 
-      {fyClients.length === 0 && totalGenExp === 0 && (
+      {fyClients.length === 0 && totalGenExp === 0 && totalGenIncome === 0 && (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>📭</Text>
           <Text style={styles.emptyText}>لا توجد بيانات في السنة المالية {activeFiscalYearLabel}</Text>

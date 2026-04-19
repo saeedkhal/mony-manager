@@ -8,6 +8,7 @@ import styles from "../styles/AppStyles";
 import SupplierDetail from "./SupplierDetail";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
+import FormTextInput from "../components/FormTextInput";
 
 export default function Suppliers() {
   const { loaded, modal, setForm, setModal, form } = useApp();

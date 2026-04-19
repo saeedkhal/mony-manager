@@ -5,6 +5,7 @@ import Clients from "../screens/Clients";
 import Workers from "../screens/Workers";
 import Suppliers from "../screens/Suppliers";
 import General from "../screens/General";
+import GeneralIncome from "../screens/GeneralIncome";
 import Zakat from "../screens/Zakat";
 import FiscalYear from "../screens/FiscalYear";
 import Backups from "../screens/Backups";
@@ -28,6 +29,7 @@ export default function RootNavigator() {
       <Stack.Screen name="workers" component={Workers} />
       <Stack.Screen name="suppliers" component={Suppliers} />
       <Stack.Screen name="general" component={General} />
+      <Stack.Screen name="generalIncome" component={GeneralIncome} />
       <Stack.Screen name="zakat" component={Zakat} />
       <Stack.Screen name="fiscalyear" component={FiscalYear} />
       <Stack.Screen name="backups" component={Backups} />

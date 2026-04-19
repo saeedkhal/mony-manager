@@ -26,7 +26,9 @@ export default function General() {
     if (!loaded || !isFocused || activeFiscalYearId == null) return;
     let cancelled = false;
     getGeneralTxs(activeFiscalYearId)
-      .then((g) => { if (!cancelled) setGeneralTxs(g || []); })
+      .then((g) => {
+        if (!cancelled) setGeneralTxs((g || []).filter((t) => t.txKind !== "income"));
+      })
       .catch(() => { if (!cancelled) setGeneralTxs([]); });
     return () => { cancelled = true; };
   }, [loaded, isFocused, activeFiscalYearId, modal]);
@@ -43,12 +45,13 @@ export default function General() {
       note: form.note || "",
       date,
       fiscalYearId: fiscalYearId ?? null,
+      txKind: "expense",
     };
     try {
       await upsertGeneralTx(tx);
       if (fiscalYearId != null) {
         const g = await getGeneralTxs(fiscalYearId);
-        setGeneralTxs(g || []);
+        setGeneralTxs((g || []).filter((t) => t.txKind !== "income"));
       }
     } catch (_) {}
     setModal(null);

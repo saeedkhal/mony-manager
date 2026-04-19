@@ -34,6 +34,7 @@ export default StyleSheet.create({
   btnWorker: { backgroundColor: "#f59e0b" },
   btnSupplier: { backgroundColor: "#8b5cf6" },
   btnGeneral: { backgroundColor: "#f43f5e" },
+  btnGeneralIncome: { backgroundColor: "#10b981" },
   btnIncome: { backgroundColor: "#6366f1" },
   btnExpense: { backgroundColor: "#f43f5e" },
   dashboard: { gap: 20 },

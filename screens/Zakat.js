@@ -47,7 +47,7 @@ export default function Zakat() {
     return () => { cancelled = true; };
   }, [loaded, isFocused, activeFiscalYearId]);
 
-  const { totalIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
+  const { totalIncome, totalGenIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
     clients,
     generalTxs,
     [],
@@ -106,6 +106,7 @@ export default function Zakat() {
         <View style={styles.zakatDetails}>
           {[
             ["📈 إجمالي الدخل", fmt(totalIncome), "#818cf8"],
+            ["💵 دخل عام", fmt(totalGenIncome), "#10b981"],
             ["🔨 مصروفات العملاء", `- ${fmt(totalClientExp)}`, "#fb923c"],
             ["🏢 مصروفات عامة", `- ${fmt(totalGenExp)}`, "#f43f5e"],
           ].map(([l, v, c]) => (
