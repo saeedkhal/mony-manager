@@ -62,6 +62,16 @@ export default function FiscalYear() {
                     onPress={() => setActive(fy)}
                     activeOpacity={0.7}
                   >
+                    <View style={styles.fiscalYearRadioWrap} pointerEvents="none">
+                      <View
+                        style={[
+                          styles.fiscalYearRadioOuter,
+                          isActive && styles.fiscalYearRadioOuterActive,
+                        ]}
+                      >
+                        {isActive ? <View style={styles.fiscalYearRadioInner} /> : null}
+                      </View>
+                    </View>
                     <View style={styles.fiscalYearItemContent}>
                       <Text style={[styles.fiscalYearItemLabel, isActive && styles.fiscalYearItemLabelActive]}>
                         {getFiscalYearLabel(fy.label)}
