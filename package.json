@@ -12,7 +12,8 @@
     "android": "npx expo start --android",
     "ios": "npx expo start --ios",
     "web": "npx expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "build:android:preview": "eas build -p android --profile preview"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
