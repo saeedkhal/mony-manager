@@ -70,7 +70,7 @@ export default function FiscalYear() {
                       <Text style={styles.fiscalYearItemMeta}>#{fy.id}</Text>
                       {isActive && (
                         <View style={styles.fiscalYearBadge}>
-                          <Text style={styles.fiscalYearBadgeText}>الحالية</Text>
+                          <Text style={styles.fiscalYearBadgeText}>نشط</Text>
                         </View>
                       )}
                     </View>

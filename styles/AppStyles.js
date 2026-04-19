@@ -1,4 +1,4 @@
-import { StyleSheet, Dimensions } from "react-native";
+import { StyleSheet, Dimensions, Platform } from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export { SCREEN_WIDTH };
@@ -474,6 +474,12 @@ export default StyleSheet.create({
     paddingHorizontal: 14,
     color: "#f1f5f9",
     fontSize: 15,
+    ...(Platform.OS === "android"
+      ? {
+          includeFontPadding: false,
+          textAlignVertical: "center",
+        }
+      : {}),
   },
   inputFocused: {
     borderColor: "#818cf8",
