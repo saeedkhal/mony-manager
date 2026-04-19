@@ -7,6 +7,7 @@ import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
+import FormDateField from "../components/FormDateField";
 
 export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
   const {
@@ -367,16 +368,12 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
             onChangeText={(text) => setForm((p) => ({ ...p, note: text }))}
           />
         </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>التاريخ</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor="#64748b"
-            value={form.date || ""}
-            onChangeText={(text) => setForm((p) => ({ ...p, date: text }))}
-          />
-        </View>
+        <FormDateField
+          styles={styles}
+          value={form.date}
+          onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+          active={modal === "addClientTx"}
+        />
         <TouchableOpacity
           style={[
             styles.btn,
@@ -470,16 +467,12 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
             onChangeText={(text) => setForm((p) => ({ ...p, note: text }))}
           />
         </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>التاريخ</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor="#64748b"
-            value={form.date || ""}
-            onChangeText={(text) => setForm((p) => ({ ...p, date: text }))}
-          />
-        </View>
+        <FormDateField
+          styles={styles}
+          value={form.date}
+          onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+          active={modal === "addWorkerTx"}
+        />
         <TouchableOpacity style={[styles.btn, styles.btnWorker, styles.modalSaveBtn]} onPress={saveClientTx}>
           <Text style={styles.btnText}>حفظ ✓</Text>
         </TouchableOpacity>

@@ -8,6 +8,7 @@ import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
+import FormDateField from "../components/FormDateField";
 
 export default function General() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
@@ -175,16 +176,12 @@ export default function General() {
             onChangeText={(text) => setForm((p) => ({ ...p, note: text }))}
           />
         </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>التاريخ</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor="#64748b"
-            value={form.date || ""}
-            onChangeText={(text) => setForm((p) => ({ ...p, date: text }))}
-          />
-        </View>
+        <FormDateField
+          styles={styles}
+          value={form.date}
+          onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+          active={modal === "addGeneral"}
+        />
         <TouchableOpacity style={[styles.btn, styles.btnGeneral, styles.modalSaveBtn]} onPress={saveGeneral}>
           <Text style={styles.btnText}>حفظ ✓</Text>
         </TouchableOpacity>
