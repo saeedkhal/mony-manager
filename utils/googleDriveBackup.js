@@ -134,6 +134,37 @@ export async function listBackupFilesFromDrive() {
   return { files: json.files || [], folderId };
 }
 
+export async function enforceDriveBackupRetention(maxFiles = 5) {
+  const keepCount = Math.max(0, Number(maxFiles) || 0);
+  const accessToken = await getFreshAccessToken();
+  const folderId = await findOrCreateBackupFolder(accessToken);
+  const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+  const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&orderBy=modifiedTime desc`;
+  const listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!listRes.ok) {
+    const t = await listRes.text();
+    throw new Error(`Drive list for retention failed: ${listRes.status} ${t}`);
+  }
+
+  const listJson = await listRes.json();
+  const files = listJson.files || [];
+  const oldFiles = files.slice(keepCount);
+  if (oldFiles.length === 0) return { deletedCount: 0 };
+
+  for (const f of oldFiles) {
+    const delRes = await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!delRes.ok) {
+      const t = await delRes.text();
+      throw new Error(`Drive delete old backup failed: ${delRes.status} ${t}`);
+    }
+  }
+
+  return { deletedCount: oldFiles.length };
+}
+
 function buildMultipartRelated(metadata, fileBytes) {
   const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const metaJson = JSON.stringify(metadata);

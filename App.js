@@ -1,7 +1,6 @@
-import { I18nManager } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import { StatusBar } from "expo-status-bar";
-import { View, Text } from "react-native";
+import { View, Text, I18nManager } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 
