@@ -82,7 +82,7 @@ export default function Workers() {
   };
 
   const workerModal = (
-    <CustomModal visible={modal === "addWorker"} onClose={() => setModal(null)}>
+    <CustomModal visible={modal === "addWorker"} onClose={() => setModal(null)} centered>
       <Text style={styles.modalTitle}>👷 {form.editId ? "تعديل" : "إضافة"} صنايعي</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>الاسم</Text>

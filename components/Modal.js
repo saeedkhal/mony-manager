@@ -6,14 +6,11 @@ import {
   TouchableOpacity,
   Text,
   StyleSheet,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-export default function CustomModal({ visible, onClose, children }) {
+export default function CustomModal({ visible, onClose, children, centered = false }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView
@@ -21,7 +18,7 @@ export default function CustomModal({ visible, onClose, children }) {
         style={styles.keyboardAvoid}
         keyboardVerticalOffset={0}
       >
-        <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={[styles.modalOverlay, centered && styles.modalOverlayCentered]} onPress={onClose}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             <ScrollView
               showsVerticalScrollIndicator={false}
@@ -43,19 +40,19 @@ export default function CustomModal({ visible, onClose, children }) {
 const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
   },
   modalOverlay: {
     flex: 1,
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
     backgroundColor: "rgba(0,0,0,0.65)",
     justifyContent: "flex-end",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingBottom: 16,
     paddingTop: 16,
+  },
+  modalOverlayCentered: {
+    justifyContent: "center",
+    paddingBottom: 0,
   },
   modalContent: {
     backgroundColor: "#1e1b4b",

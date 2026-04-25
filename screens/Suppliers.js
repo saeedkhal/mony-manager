@@ -88,7 +88,7 @@ export default function Suppliers() {
   };
 
   const supplierModal = (
-    <CustomModal visible={modal === "addSupplier"} onClose={() => setModal(null)}>
+    <CustomModal visible={modal === "addSupplier"} onClose={() => setModal(null)} centered>
       <Text style={styles.modalTitle}>🏭 {form.editId ? "تعديل" : "إضافة"} مورد</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>اسم المورد</Text>
