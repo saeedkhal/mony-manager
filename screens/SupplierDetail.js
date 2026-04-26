@@ -4,6 +4,7 @@ import { useApp } from "../context/AppContext";
 import { getSuppliers, getClients, getWorkers, getClientWithTxs, upsertClient } from "../utils/db";
 import { CURRENCY, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
+import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils/formValidation";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
@@ -22,6 +23,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
     showClientPicker,
     setShowClientPicker,
   } = useApp();
+  const [formErrors, setFormErrors] = useState({});
   const [suppliers, setSuppliers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -70,12 +72,32 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
   }, [loaded, modal]);
 
   const saveClientTx = async () => {
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
-    const date = form.date || new Date().toISOString().split("T")[0];
+    const err = {};
+    const num = parsePositiveAmount(form.amount);
+    if (num == null) err.amount = FORM_MSG.amount;
+    const date = trimmed(form.date) || new Date().toISOString().split("T")[0];
+    if (!isValidDateYmd(date)) err.date = FORM_MSG.date;
+    if (modal === "addSupplierTx" && !form.clientId) err.clientId = FORM_MSG.client;
+    if (form.txType === "expense" && form.cat === "مصنعية" && txWorkers.length > 0 && !form.workerId) {
+      err.workerId = FORM_MSG.worker;
+    }
+    if (
+      form.txType === "expense" &&
+      (form.cat === "قماش" || form.cat === "خشب وكلف") &&
+      txSuppliers.length > 0 &&
+      !form.supplierId
+    ) {
+      err.supplierId = FORM_MSG.supplier;
+    }
+    if (Object.keys(err).length) {
+      setFormErrors(err);
+      return;
+    }
+    setFormErrors({});
     const targetClientId = form.clientId;
     const c = await getClientWithTxs(targetClientId);
     if (!c) return;
-    const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
+    const tx = { type: form.txType, amount: num, cat: form.cat, note: form.note || "", date };
     if (form.workerId) tx.workerId = form.workerId;
     if (form.supplierId) tx.supplierId = form.supplierId;
     let updatedClient;
@@ -188,6 +210,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
           <TouchableOpacity
             style={[styles.btn, styles.btnSupplier, { width: "100%", marginBottom: 20 }]}
             onPress={() => {
+              setFormErrors({});
               setForm({
                 txType: "expense",
                 cat: activeSupplier.category || "قماش",
@@ -241,6 +264,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                             workerId: tx.workerId,
                             supplierId: tx.supplierId,
                           });
+                          setFormErrors({});
                           setModal("addClientTx");
                         }}
                       >
@@ -261,7 +285,13 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
         </View>
       </ScreenLayout>
 
-      <CustomModal visible={modal === "addClientTx"} onClose={() => setModal(null)}>
+      <CustomModal
+        visible={modal === "addClientTx"}
+        onClose={() => {
+          setFormErrors({});
+          setModal(null);
+        }}
+      >
         <Text style={styles.modalTitle}>
           {form.editTxId
             ? "✏️ تعديل معاملة"
@@ -279,8 +309,12 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
             placeholder="0"
             placeholderTextColor="#64748b"
             value={form.amount?.toString() || ""}
-            onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
+            onChangeText={(text) => {
+              setFormErrors((e) => ({ ...e, amount: undefined }));
+              setForm((p) => ({ ...p, amount: text }));
+            }}
             keyboardType="numeric"
+            error={formErrors.amount}
           />
         </View>
         <View style={styles.inputGroup}>
@@ -298,7 +332,10 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                   form.txType === "income" && form.cat === cat && { backgroundColor: "#6366f1" },
                   form.txType === "expense" && form.cat === cat && { backgroundColor: "#f43f5e" },
                 ]}
-                onPress={() => setForm((p) => ({ ...p, cat, workerId: undefined, supplierId: undefined }))}
+                onPress={() => {
+                  setFormErrors((e) => ({ ...e, workerId: undefined, supplierId: undefined }));
+                  setForm((p) => ({ ...p, cat, workerId: undefined, supplierId: undefined }));
+                }}
               >
                 <Text style={[styles.optionBtnText, form.cat === cat && styles.optionBtnTextActive]}>
                   {cat}
@@ -321,7 +358,10 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                       borderColor: "#f59e0b",
                     },
                   ]}
-                  onPress={() => setForm((p) => ({ ...p, workerId: w.id }))}
+                  onPress={() => {
+                    setFormErrors((e) => ({ ...e, workerId: undefined }));
+                    setForm((p) => ({ ...p, workerId: w.id }));
+                  }}
                 >
                   <Text
                     style={[
@@ -334,6 +374,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                 </TouchableOpacity>
               ))}
             </View>
+            {formErrors.workerId ? <Text style={styles.fieldErrorText}>{formErrors.workerId}</Text> : null}
           </View>
         )}
         {form.txType === "expense" &&
@@ -352,7 +393,10 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                         borderColor: "#a78bfa",
                       },
                     ]}
-                    onPress={() => setForm((p) => ({ ...p, supplierId: s.id }))}
+                    onPress={() => {
+                      setFormErrors((e) => ({ ...e, supplierId: undefined }));
+                      setForm((p) => ({ ...p, supplierId: s.id }));
+                    }}
                   >
                     <Text
                       style={[
@@ -365,6 +409,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                   </TouchableOpacity>
                 ))}
               </View>
+            {formErrors.supplierId ? <Text style={styles.fieldErrorText}>{formErrors.supplierId}</Text> : null}
             </View>
           )}
         <View style={styles.inputGroup}>
@@ -380,8 +425,12 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
         <FormDateField
           styles={styles}
           value={form.date}
-          onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+          onChangeValue={(v) => {
+            setFormErrors((e) => ({ ...e, date: undefined }));
+            setForm((p) => ({ ...p, date: v }));
+          }}
           active={modal === "addClientTx"}
+          error={formErrors.date}
         />
         <TouchableOpacity
           style={[
@@ -398,6 +447,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
       <CustomModal
         visible={modal === "addSupplierTx"}
         onClose={() => {
+          setFormErrors({});
           setModal(null);
           setShowClientPicker(false);
         }}
@@ -422,6 +472,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                   <TouchableOpacity
                     style={[styles.pickerItem, !form.clientId && styles.pickerItemActive]}
                     onPress={() => {
+                      setFormErrors((e) => ({ ...e, clientId: undefined }));
                       setForm((p) => ({ ...p, clientId: null }));
                       setShowClientPicker(false);
                     }}
@@ -435,6 +486,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                       key={c.id}
                       style={[styles.pickerItem, form.clientId === c.id && styles.pickerItemActive]}
                       onPress={() => {
+                        setFormErrors((e) => ({ ...e, clientId: undefined }));
                         setForm((p) => ({ ...p, clientId: c.id }));
                         setShowClientPicker(false);
                       }}
@@ -453,6 +505,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
               </View>
             )}
           </View>
+          {formErrors.clientId ? <Text style={styles.fieldErrorText}>{formErrors.clientId}</Text> : null}
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
@@ -461,8 +514,12 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
             placeholder="0"
             placeholderTextColor="#64748b"
             value={form.amount?.toString() || ""}
-            onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
+            onChangeText={(text) => {
+              setFormErrors((e) => ({ ...e, amount: undefined }));
+              setForm((p) => ({ ...p, amount: text }));
+            }}
             keyboardType="numeric"
+            error={formErrors.amount}
           />
         </View>
         <View style={styles.inputGroup}>
@@ -497,8 +554,12 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
         <FormDateField
           styles={styles}
           value={form.date}
-          onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+          onChangeValue={(v) => {
+            setFormErrors((e) => ({ ...e, date: undefined }));
+            setForm((p) => ({ ...p, date: v }));
+          }}
           active={modal === "addSupplierTx"}
+          error={formErrors.date}
         />
         <TouchableOpacity style={[styles.btn, styles.btnSupplier, styles.modalSaveBtn]} onPress={saveClientTx}>
           <Text style={styles.btnText}>حفظ ✓</Text>

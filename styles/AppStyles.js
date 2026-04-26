@@ -486,6 +486,16 @@ export default StyleSheet.create({
     borderColor: "#818cf8",
     backgroundColor: "rgba(129,140,248,0.08)",
   },
+  inputError: {
+    borderColor: "#f87171",
+    backgroundColor: "rgba(248,113,113,0.08)",
+  },
+  fieldErrorText: {
+    color: "#f87171",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 6,
+  },
   optionsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   optionBtn: {
     backgroundColor: "rgba(255,255,255,0.07)",

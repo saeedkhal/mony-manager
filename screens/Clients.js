@@ -9,9 +9,11 @@ import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormTextInput from "../components/FormTextInput";
+import { FORM_MSG, trimmed } from "../utils/formValidation";
 
 export default function Clients() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
+  const [formErrors, setFormErrors] = useState({});
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
@@ -28,7 +30,11 @@ export default function Clients() {
   }, [loaded, activeFiscalYearId, modal]);
 
   const saveClient = async () => {
-    if (!form.name?.trim()) return;
+    if (!trimmed(form.name)) {
+      setFormErrors({ name: FORM_MSG.required });
+      return;
+    }
+    setFormErrors({});
     await getActiveFiscalYear();
     const fiscalYearId = await getActiveFiscalYearId();
     const newClient = {
@@ -60,7 +66,14 @@ export default function Clients() {
   };
 
   const addClientModal = (
-    <CustomModal visible={modal === "addClient"} onClose={() => setModal(null)}>
+    <CustomModal
+      visible={modal === "addClient"}
+      onClose={() => {
+        setFormErrors({});
+        setModal(null);
+      }}
+      centered
+    >
       <Text style={styles.modalTitle}>👤 إضافة عميل جديد</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>اسم العميل</Text>
@@ -69,7 +82,11 @@ export default function Clients() {
           placeholder="مثال: أحمد محمد"
           placeholderTextColor="#64748b"
           value={form.name || ""}
-          onChangeText={(text) => setForm((p) => ({ ...p, name: text }))}
+          onChangeText={(text) => {
+            setFormErrors((e) => ({ ...e, name: undefined }));
+            setForm((p) => ({ ...p, name: text }));
+          }}
+          error={formErrors.name}
         />
       </View>
       <View style={styles.inputGroup}>
@@ -135,6 +152,7 @@ export default function Clients() {
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary, { marginBottom: 16, alignSelf: "flex-start" }]}
             onPress={() => {
+              setFormErrors({});
               setForm({});
               setModal("addClient");
             }}

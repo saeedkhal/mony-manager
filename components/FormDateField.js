@@ -5,13 +5,21 @@ import FormTextInput from "./FormTextInput";
 
 /**
  * Date field for forms: Android system date picker, iOS text field (YYYY-MM-DD).
- * @param {object} styles - App styles with inputGroup, inputLabel, input, inputFocused
+ * @param {object} styles - App styles with inputGroup, inputLabel, input, inputFocused, inputError, fieldErrorText
  * @param {string} [label]
  * @param {string} [value] - YYYY-MM-DD or empty
  * @param {(ymd: string) => void} onChangeValue
  * @param {boolean} [active] - when false, closes any open Android picker (e.g. modal hidden)
+ * @param {string} [error] - validation message shown below the field
  */
-export default function FormDateField({ styles: S, label = "التاريخ", value, onChangeValue, active = true }) {
+export default function FormDateField({
+  styles: S,
+  label = "التاريخ",
+  value,
+  onChangeValue,
+  active = true,
+  error,
+}) {
   const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
@@ -41,7 +49,7 @@ export default function FormDateField({ styles: S, label = "التاريخ", val
       {Platform.OS === "android" ? (
         <>
           <TouchableOpacity
-            style={[S.input, showPicker && S.inputFocused]}
+            style={[S.input, showPicker && S.inputFocused, error ? S.inputError : null]}
             activeOpacity={0.75}
             onPress={() => setShowPicker(true)}
           >
@@ -69,8 +77,10 @@ export default function FormDateField({ styles: S, label = "التاريخ", val
           placeholderTextColor="#64748b"
           value={value || ""}
           onChangeText={(text) => onChangeValue(text)}
+          error={error}
         />
       )}
+      {error && Platform.OS === "android" ? <Text style={S.fieldErrorText}>{error}</Text> : null}
     </View>
   );
 }

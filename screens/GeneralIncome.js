@@ -10,6 +10,7 @@ import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
+import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils/formValidation";
 
 const INCOME_COLOR = "#10b981";
 
@@ -20,6 +21,7 @@ function txAmount(t) {
 
 export default function GeneralIncome() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
+  const [formErrors, setFormErrors] = useState({});
 
   const deleteGeneralTx = async (id) => {
     try {
@@ -46,13 +48,20 @@ export default function GeneralIncome() {
   }, [loaded, isFocused, activeFiscalYearId, modal]);
 
   const saveGeneralIncome = async () => {
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
-    const date = form.date || new Date().toISOString().split("T")[0];
+    const err = {};
+    if (parsePositiveAmount(form.amount) == null) err.amount = FORM_MSG.amount;
+    const date = trimmed(form.date) || new Date().toISOString().split("T")[0];
+    if (!isValidDateYmd(date)) err.date = FORM_MSG.date;
+    if (Object.keys(err).length) {
+      setFormErrors(err);
+      return;
+    }
+    setFormErrors({});
     await getActiveFiscalYear();
     const fiscalYearId = await getActiveFiscalYearId();
     const tx = {
       id: form.editTxId || Date.now(),
-      amount: Number(form.amount),
+      amount: parsePositiveAmount(form.amount),
       cat: "",
       note: form.note || "",
       date,
@@ -82,6 +91,7 @@ export default function GeneralIncome() {
           <TouchableOpacity
             style={[styles.btn, styles.btnGeneralIncome, { marginBottom: 16, alignSelf: "flex-start" }]}
             onPress={() => {
+              setFormErrors({});
               setForm({
                 date: new Date().toISOString().split("T")[0],
               });
@@ -141,7 +151,13 @@ export default function GeneralIncome() {
           )}
         </View>
       </ScreenLayout>
-      <CustomModal visible={modal === "addGeneralIncome"} onClose={() => setModal(null)}>
+      <CustomModal
+        visible={modal === "addGeneralIncome"}
+        onClose={() => {
+          setFormErrors({});
+          setModal(null);
+        }}
+      >
         <Text style={styles.modalTitle}>💵 دخل عام — {activeFiscalYearLabel}</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
@@ -150,8 +166,12 @@ export default function GeneralIncome() {
             placeholder="0"
             placeholderTextColor="#64748b"
             value={form.amount?.toString() || ""}
-            onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
+            onChangeText={(text) => {
+              setFormErrors((e) => ({ ...e, amount: undefined }));
+              setForm((p) => ({ ...p, amount: text }));
+            }}
             keyboardType="numeric"
+            error={formErrors.amount}
           />
         </View>
         <View style={styles.inputGroup}>
@@ -167,8 +187,12 @@ export default function GeneralIncome() {
         <FormDateField
           styles={styles}
           value={form.date}
-          onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+          onChangeValue={(v) => {
+            setFormErrors((e) => ({ ...e, date: undefined }));
+            setForm((p) => ({ ...p, date: v }));
+          }}
           active={modal === "addGeneralIncome"}
+          error={formErrors.date}
         />
         <TouchableOpacity
           style={[styles.btn, styles.btnGeneralIncome, styles.modalSaveBtn]}

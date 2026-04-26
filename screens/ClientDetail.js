@@ -10,6 +10,7 @@ import {
 } from "../utils/db";
 import { CURRENCY, STATUS_LABELS, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
+import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils/formValidation";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
@@ -19,7 +20,10 @@ import FormTextInput from "../components/FormTextInput";
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
   const { activeFiscalYearLabel, deleteClientTx, setForm, setModal, modal, form } = useApp();
 
+  const [formErrors, setFormErrors] = useState({});
+
   const openClientTx = (cid, txType, editTx = null) => {
+    setFormErrors({});
     if (editTx) {
       setForm({
         clientId: cid,
@@ -121,12 +125,31 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const getSupplierName = (id) => suppliers.find((s) => s.id === id)?.name || "غير محدد";
 
   const saveClientTx = async () => {
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
-    const date = form.date || new Date().toISOString().split("T")[0];
+    const err = {};
+    const num = parsePositiveAmount(form.amount);
+    if (num == null) err.amount = FORM_MSG.amount;
+    const date = trimmed(form.date) || new Date().toISOString().split("T")[0];
+    if (!isValidDateYmd(date)) err.date = FORM_MSG.date;
+    if (form.txType === "expense" && form.cat === "مصنعية" && workers.length > 0 && !form.workerId) {
+      err.workerId = FORM_MSG.worker;
+    }
+    if (
+      form.txType === "expense" &&
+      (form.cat === "قماش" || form.cat === "خشب وكلف") &&
+      suppliers.length > 0 &&
+      !form.supplierId
+    ) {
+      err.supplierId = FORM_MSG.supplier;
+    }
+    if (Object.keys(err).length) {
+      setFormErrors(err);
+      return;
+    }
+    setFormErrors({});
     const targetClientId = form.clientId;
     const c = await getClientWithTxs(targetClientId);
     if (!c) return;
-    const tx = { type: form.txType, amount: Number(form.amount), cat: form.cat, note: form.note || "", date };
+    const tx = { type: form.txType, amount: num, cat: form.cat, note: form.note || "", date };
     if (form.workerId) tx.workerId = form.workerId;
     if (form.supplierId) tx.supplierId = form.supplierId;
     let updatedClient;
@@ -314,7 +337,13 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </View>
       </View>
     </ScreenLayout>
-    <CustomModal visible={modal === "addClientTx"} onClose={() => setModal(null)}>
+    <CustomModal
+      visible={modal === "addClientTx"}
+      onClose={() => {
+        setFormErrors({});
+        setModal(null);
+      }}
+    >
       <Text style={styles.modalTitle}>
         {form.editTxId
           ? "✏️ تعديل معاملة"
@@ -332,8 +361,12 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
           placeholder="0"
           placeholderTextColor="#64748b"
           value={form.amount?.toString() || ""}
-          onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
+          onChangeText={(text) => {
+            setFormErrors((e) => ({ ...e, amount: undefined }));
+            setForm((p) => ({ ...p, amount: text }));
+          }}
           keyboardType="numeric"
+          error={formErrors.amount}
         />
       </View>
       <View style={styles.inputGroup}>
@@ -351,7 +384,10 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                 form.txType === "income" && form.cat === cat && { backgroundColor: "#6366f1" },
                 form.txType === "expense" && form.cat === cat && { backgroundColor: "#f43f5e" },
               ]}
-              onPress={() => setForm((p) => ({ ...p, cat, workerId: undefined, supplierId: undefined }))}
+              onPress={() => {
+                setFormErrors((e) => ({ ...e, workerId: undefined, supplierId: undefined }));
+                setForm((p) => ({ ...p, cat, workerId: undefined, supplierId: undefined }));
+              }}
             >
               <Text style={[styles.optionBtnText, form.cat === cat && styles.optionBtnTextActive]}>
                 {cat}
@@ -374,7 +410,10 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                     borderColor: "#f59e0b",
                   },
                 ]}
-                onPress={() => setForm((p) => ({ ...p, workerId: w.id }))}
+                onPress={() => {
+                  setFormErrors((e) => ({ ...e, workerId: undefined }));
+                  setForm((p) => ({ ...p, workerId: w.id }));
+                }}
               >
                 <Text
                   style={[
@@ -387,6 +426,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
               </TouchableOpacity>
             ))}
           </View>
+          {formErrors.workerId ? <Text style={styles.fieldErrorText}>{formErrors.workerId}</Text> : null}
         </View>
       )}
       {form.txType === "expense" &&
@@ -405,7 +445,10 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                       borderColor: "#a78bfa",
                     },
                   ]}
-                  onPress={() => setForm((p) => ({ ...p, supplierId: s.id }))}
+                  onPress={() => {
+                    setFormErrors((e) => ({ ...e, supplierId: undefined }));
+                    setForm((p) => ({ ...p, supplierId: s.id }));
+                  }}
                 >
                   <Text
                     style={[
@@ -418,6 +461,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                 </TouchableOpacity>
               ))}
             </View>
+          {formErrors.supplierId ? <Text style={styles.fieldErrorText}>{formErrors.supplierId}</Text> : null}
           </View>
         )}
       <View style={styles.inputGroup}>
@@ -433,8 +477,12 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       <FormDateField
         styles={styles}
         value={form.date}
-        onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+        onChangeValue={(v) => {
+          setFormErrors((e) => ({ ...e, date: undefined }));
+          setForm((p) => ({ ...p, date: v }));
+        }}
         active={modal === "addClientTx"}
+        error={formErrors.date}
       />
       <TouchableOpacity
         style={[

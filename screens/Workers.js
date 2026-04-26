@@ -9,9 +9,11 @@ import WorkerDetail from "./WorkerDetail";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormTextInput from "../components/FormTextInput";
+import { FORM_MSG, trimmed } from "../utils/formValidation";
 
 export default function Workers() {
   const { loaded, modal, setForm, setModal, form } = useApp();
+  const [formErrors, setFormErrors] = useState({});
 
   const [workers, setWorkers] = useState([]);
   const [clients, setClients] = useState([]);
@@ -59,7 +61,11 @@ export default function Workers() {
   }, [workers, clients]);
 
   const saveWorker = async () => {
-    if (!form.name?.trim()) return;
+    if (!trimmed(form.name)) {
+      setFormErrors({ name: FORM_MSG.required });
+      return;
+    }
+    setFormErrors({});
     try {
       if (form.editId) {
         const list = await getWorkers();
@@ -82,7 +88,14 @@ export default function Workers() {
   };
 
   const workerModal = (
-    <CustomModal visible={modal === "addWorker"} onClose={() => setModal(null)} centered>
+    <CustomModal
+      visible={modal === "addWorker"}
+      onClose={() => {
+        setFormErrors({});
+        setModal(null);
+      }}
+      centered
+    >
       <Text style={styles.modalTitle}>👷 {form.editId ? "تعديل" : "إضافة"} صنايعي</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>الاسم</Text>
@@ -91,7 +104,11 @@ export default function Workers() {
           placeholder="مثال: عمرو"
           placeholderTextColor="#64748b"
           value={form.name || ""}
-          onChangeText={(text) => setForm((p) => ({ ...p, name: text }))}
+          onChangeText={(text) => {
+            setFormErrors((e) => ({ ...e, name: undefined }));
+            setForm((p) => ({ ...p, name: text }));
+          }}
+          error={formErrors.name}
         />
       </View>
       <View style={styles.inputGroup}>
@@ -138,6 +155,7 @@ export default function Workers() {
           <TouchableOpacity
             style={[styles.btn, styles.btnWorker, { marginBottom: 16, alignSelf: "flex-start" }]}
             onPress={() => {
+              setFormErrors({});
               setForm({});
               setModal("addWorker");
             }}
@@ -167,6 +185,7 @@ export default function Workers() {
                         style={styles.iconBtn}
                         onPress={(e) => {
                           e.stopPropagation();
+                          setFormErrors({});
                           setForm({ editId: w.id, name: w.name, phone: w.phone });
                           setModal("addWorker");
                         }}

@@ -9,9 +9,11 @@ import SupplierDetail from "./SupplierDetail";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormTextInput from "../components/FormTextInput";
+import { FORM_MSG, trimmed } from "../utils/formValidation";
 
 export default function Suppliers() {
   const { loaded, modal, setForm, setModal, form } = useApp();
+  const [formErrors, setFormErrors] = useState({});
 
   const [suppliers, setSuppliers] = useState([]);
   const [clients, setClients] = useState([]);
@@ -59,7 +61,11 @@ export default function Suppliers() {
   }, [suppliers, clients]);
 
   const saveSupplier = async () => {
-    if (!form.name?.trim()) return;
+    if (!trimmed(form.name)) {
+      setFormErrors({ name: FORM_MSG.required });
+      return;
+    }
+    setFormErrors({});
     try {
       if (form.editId) {
         const list = await getSuppliers();
@@ -88,7 +94,14 @@ export default function Suppliers() {
   };
 
   const supplierModal = (
-    <CustomModal visible={modal === "addSupplier"} onClose={() => setModal(null)} centered>
+    <CustomModal
+      visible={modal === "addSupplier"}
+      onClose={() => {
+        setFormErrors({});
+        setModal(null);
+      }}
+      centered
+    >
       <Text style={styles.modalTitle}>🏭 {form.editId ? "تعديل" : "إضافة"} مورد</Text>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>اسم المورد</Text>
@@ -97,7 +110,11 @@ export default function Suppliers() {
           placeholder="مثال: مورد الأخشاب"
           placeholderTextColor="#64748b"
           value={form.name || ""}
-          onChangeText={(text) => setForm((p) => ({ ...p, name: text }))}
+          onChangeText={(text) => {
+            setFormErrors((e) => ({ ...e, name: undefined }));
+            setForm((p) => ({ ...p, name: text }));
+          }}
+          error={formErrors.name}
         />
       </View>
       <View style={styles.inputGroup}>
@@ -157,6 +174,7 @@ export default function Suppliers() {
           <TouchableOpacity
             style={[styles.btn, styles.btnSupplier, { marginBottom: 16, alignSelf: "flex-start" }]}
             onPress={() => {
+              setFormErrors({});
               setForm({});
               setModal("addSupplier");
             }}
@@ -189,6 +207,7 @@ export default function Suppliers() {
                         style={styles.iconBtn}
                         onPress={(e) => {
                           e.stopPropagation();
+                          setFormErrors({});
                           setForm({
                             editId: s.id,
                             name: s.name,

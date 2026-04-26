@@ -10,9 +10,11 @@ import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
+import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils/formValidation";
 
 export default function General() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
+  const [formErrors, setFormErrors] = useState({});
 
   const deleteGeneralTx = async (id) => {
     try {
@@ -34,13 +36,20 @@ export default function General() {
   }, [loaded, isFocused, activeFiscalYearId, modal]);
 
   const saveGeneral = async () => {
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) return;
-    const date = form.date || new Date().toISOString().split("T")[0];
+    const err = {};
+    if (parsePositiveAmount(form.amount) == null) err.amount = FORM_MSG.amount;
+    const date = trimmed(form.date) || new Date().toISOString().split("T")[0];
+    if (!isValidDateYmd(date)) err.date = FORM_MSG.date;
+    if (Object.keys(err).length) {
+      setFormErrors(err);
+      return;
+    }
+    setFormErrors({});
     await getActiveFiscalYear();
     const fiscalYearId = await getActiveFiscalYearId();
     const tx = {
       id: form.editTxId || Date.now(),
-      amount: Number(form.amount),
+      amount: parsePositiveAmount(form.amount),
       cat: form.cat || GENERAL_EXPENSE_CATS[0],
       note: form.note || "",
       date,
@@ -67,6 +76,7 @@ export default function General() {
           <TouchableOpacity
             style={[styles.btn, styles.btnGeneral, { marginBottom: 16, alignSelf: "flex-start" }]}
             onPress={() => {
+              setFormErrors({});
               setForm({
                 cat: GENERAL_EXPENSE_CATS[0],
                 date: new Date().toISOString().split("T")[0],
@@ -138,7 +148,13 @@ export default function General() {
           )}
         </View>
       </ScreenLayout>
-      <CustomModal visible={modal === "addGeneral"} onClose={() => setModal(null)}>
+      <CustomModal
+        visible={modal === "addGeneral"}
+        onClose={() => {
+          setFormErrors({});
+          setModal(null);
+        }}
+      >
         <Text style={styles.modalTitle}>🏢 مصروف عام — {activeFiscalYearLabel}</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
@@ -147,8 +163,12 @@ export default function General() {
             placeholder="0"
             placeholderTextColor="#64748b"
             value={form.amount?.toString() || ""}
-            onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
+            onChangeText={(text) => {
+              setFormErrors((e) => ({ ...e, amount: undefined }));
+              setForm((p) => ({ ...p, amount: text }));
+            }}
             keyboardType="numeric"
+            error={formErrors.amount}
           />
         </View>
         <View style={styles.inputGroup}>
@@ -183,8 +203,12 @@ export default function General() {
         <FormDateField
           styles={styles}
           value={form.date}
-          onChangeValue={(v) => setForm((p) => ({ ...p, date: v }))}
+          onChangeValue={(v) => {
+            setFormErrors((e) => ({ ...e, date: undefined }));
+            setForm((p) => ({ ...p, date: v }));
+          }}
           active={modal === "addGeneral"}
+          error={formErrors.date}
         />
         <TouchableOpacity style={[styles.btn, styles.btnGeneral, styles.modalSaveBtn]} onPress={saveGeneral}>
           <Text style={styles.btnText}>حفظ ✓</Text>

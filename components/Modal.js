@@ -5,6 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Text,
+  View,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -27,6 +28,17 @@ export default function CustomModal({ visible, onClose, children, centered = fal
             >
               {children}
             </ScrollView>
+            <View style={styles.modalCloseTopWrap} pointerEvents="box-none">
+              <TouchableOpacity
+                style={styles.modalCloseTopBtn}
+                onPress={onClose}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityRole="button"
+                accessibilityLabel="إغلاق"
+              >
+                <Text style={styles.modalCloseTopText}>✕</Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity style={styles.modalCancelBtn} onPress={onClose}>
               <Text style={styles.modalCancelText}>إلغاء</Text>
             </TouchableOpacity>
@@ -63,8 +75,30 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 440,
     maxHeight: "90%",
+    position: "relative",
+  },
+  modalCloseTopWrap: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    zIndex: 2,
+  },
+  modalCloseTopBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCloseTopText: {
+    color: "#cbd5e1",
+    fontSize: 18,
+    fontWeight: "600",
+    marginTop: -1,
   },
   scrollContent: {
+    paddingTop: 36,
     paddingBottom: 80,
   },
   modalCancelBtn: {
