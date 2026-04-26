@@ -10,6 +10,61 @@ import { fmt } from "../utils/helpers";
 import styles, { SCREEN_WIDTH } from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
 
+/**
+ * Must match `style.paddingRight` on BarChart (chart-kit uses it as the left Y-axis gutter in px).
+ * Bars are laid out in (width − gutter); built-in X labels use the same offset + barWidth.
+ */
+const BAR_CHART_Y_AXIS_GUTTER = 64;
+const BAR_CHART_BAR_WIDTH = 32;
+/** With `withVerticalLabels={false}`, chart-kit leaves empty band under bars; negative margin pulls labels up (lower ratio = more gap below bars). */
+const BAR_CHART_X_LABEL_PULL_UP_RATIO = 0.1;
+
+const barChartCardStyle = [styles.chart, { paddingRight: BAR_CHART_Y_AXIS_GUTTER, marginTop: 8, marginBottom: 0 }];
+
+/** RN `Text` shapes Arabic correctly; SVG labels in chart-kit do not — use below charts. */
+function ChartXAxisLabels({ labels, width, chartHeight, yAxisGutter = BAR_CHART_Y_AXIS_GUTTER, barPercentage = 1 }) {
+  const n = labels?.length ?? 0;
+  if (!n) return null;
+  const plotW = width - yAxisGutter;
+  const segment = plotW / n;
+  const barW = BAR_CHART_BAR_WIDTH * barPercentage;
+  /** Align cell midpoint with bar center: barCenter = i·segment + barW; flex center = i·segment + segment/2. */
+  const labelShiftX = barW - segment / 2;
+  const h = chartHeight ?? 220;
+  const marginTop = -Math.round(h * BAR_CHART_X_LABEL_PULL_UP_RATIO);
+
+  return (
+    <View style={{ width, alignSelf: "center", marginTop, paddingBottom: 0 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          width,
+          paddingLeft: yAxisGutter,
+          direction: "ltr",
+        }}
+      >
+        {labels.map((label, i) => (
+          <View key={`${i}-${String(label).slice(0, 24)}`} style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
+            <View style={{ transform: [{ translateX: labelShiftX }] }}>
+              <Text
+                numberOfLines={2}
+                ellipsizeMode="tail"
+                style={{
+                  textAlign: "center",
+                  color: "#94a3b8",
+                  fontSize: 11,
+                }}
+              >
+                {label}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const chartConfig = {
   backgroundColor: "#1e1b4b",
   backgroundGradientFrom: "#1e1b4b",
@@ -26,6 +81,11 @@ const chartConfig = {
 
 /** Page size for «ملخص العملاء» list only (charts/stats still use full `getClients()`). */
 const DASH_CLIENT_SUMMARY_PAGE = 5;
+
+/** Profitability bar chart: newest clients in the fiscal year (`id` desc, same as DB). */
+const DASH_PROFITABILITY_CHART_COUNT = 5;
+
+const CHART_WIDTH = SCREEN_WIDTH - 80;
 
 export default function Dashboard() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel } = useApp();
@@ -100,12 +160,13 @@ export default function Dashboard() {
     monthlyData,
   } = appData;
 
-  const chartData = fyClients
+  const clientsProfitabilityChart = [...fyClients]
+    .sort((a, b) => Number(b.id) - Number(a.id))
+    .slice(0, DASH_PROFITABILITY_CHART_COUNT)
     .map((c) => {
       const t = clientTotals(c);
       return { name: c.name, دخل: t.income, مصروف: t.expense, ربح: t.profit };
-    })
-    .sort((a, b) => b.ربح - a.ربح);
+    });
 
   const monthlyChartData = {
     labels: monthlyData.map((m) => m.label),
@@ -115,11 +176,18 @@ export default function Dashboard() {
     ],
   };
 
+  const clientChartLabels = clientsProfitabilityChart.map((c) => c.name);
   const clientChartData = {
-    labels: chartData.slice(0, 10).map((c) => (c.name.length > 8 ? c.name.substring(0, 8) + "..." : c.name)),
+    labels: clientChartLabels.map(() => " "),
     datasets: [
-      { data: chartData.slice(0, 10).map((c) => c.دخل), color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})` },
-      { data: chartData.slice(0, 10).map((c) => c.مصروف), color: (opacity = 1) => `rgba(251, 146, 60, ${opacity})` },
+      {
+        data: clientsProfitabilityChart.map((c) => c.دخل),
+        color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
+      },
+      {
+        data: clientsProfitabilityChart.map((c) => c.مصروف),
+        color: (opacity = 1) => `rgba(251, 146, 60, ${opacity})`,
+      },
     ],
   };
 
@@ -157,29 +225,43 @@ export default function Dashboard() {
           <Text style={styles.cardTitle}>📅 الدخل والمصروفات شهرياً — {activeFiscalYearLabel}</Text>
           <BarChart
             data={monthlyChartData}
-            width={SCREEN_WIDTH - 80}
+            width={CHART_WIDTH}
             height={220}
             chartConfig={chartConfig}
-            style={styles.chart}
+            style={barChartCardStyle}
             yAxisLabel=""
             yAxisSuffix=""
             showValuesOnTopOfBars
+            withVerticalLabels={false}
+          />
+          <ChartXAxisLabels
+            labels={monthlyChartData.labels}
+            width={CHART_WIDTH}
+            chartHeight={220}
+            barPercentage={chartConfig.barPercentage ?? 1}
           />
         </View>
       )}
 
-      {chartData.length > 0 && (
+      {clientsProfitabilityChart.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>🏆 ربحية العملاء — {activeFiscalYearLabel}</Text>
+          <Text style={styles.cardTitle}>🏆 ربحية آخر {DASH_PROFITABILITY_CHART_COUNT} عملاء — {activeFiscalYearLabel}</Text>
           <BarChart
             data={clientChartData}
-            width={SCREEN_WIDTH - 80}
+            width={CHART_WIDTH}
             height={200}
             chartConfig={chartConfig}
-            style={styles.chart}
+            style={barChartCardStyle}
             yAxisLabel=""
             yAxisSuffix=""
             showValuesOnTopOfBars
+            withVerticalLabels={false}
+          />
+          <ChartXAxisLabels
+            labels={clientChartLabels}
+            width={CHART_WIDTH}
+            chartHeight={200}
+            barPercentage={chartConfig.barPercentage ?? 1}
           />
         </View>
       )}
@@ -187,9 +269,6 @@ export default function Dashboard() {
       {fyClients.length > 0 && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>👥 ملخص العملاء (الأحدث)</Text>
-          <Text style={[styles.sectionSubtitle, { marginBottom: 12, marginTop: -8 }]}>
-            {DASH_CLIENT_SUMMARY_PAGE} عملاء لكل دفعة — الإحصائيات والرسوم أعلاه تشمل الجميع.
-          </Text>
           {summaryClients.map((c) => {
             const t = clientTotals(c);
             const s = STATUS_LABELS[c.status];
