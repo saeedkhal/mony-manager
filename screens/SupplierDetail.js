@@ -11,6 +11,26 @@ import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
 
+function normalizeSupplierDetailDateRange(fromRaw, toRaw) {
+  const f = trimmed(fromRaw);
+  const t = trimmed(toRaw);
+  const vf = f && isValidDateYmd(f) ? f : null;
+  const vt = t && isValidDateYmd(t) ? t : null;
+  let dateFrom = vf;
+  let dateTo = vt;
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    const x = dateFrom;
+    dateFrom = dateTo;
+    dateTo = x;
+  }
+  const active = dateFrom != null || dateTo != null;
+  return { dateFrom, dateTo, active };
+}
+
+/** Filter row date pickers off while any tx/supplier modal is open (incl. parent «addSupplier»). */
+const detailFilterDateFieldsActive = (modal) =>
+  modal !== "addClientTx" && modal !== "addSupplierTx" && modal !== "addSupplier";
+
 export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }) {
   const {
     loaded,
@@ -30,6 +50,15 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
   const [txClients, setTxClients] = useState([]);
   const [txWorkers, setTxWorkers] = useState([]);
   const [txSuppliers, setTxSuppliers] = useState([]);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [dateFiltersExpanded, setDateFiltersExpanded] = useState(false);
+
+  useEffect(() => {
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setDateFiltersExpanded(false);
+  }, [selectedSupplier]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -142,6 +171,36 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
     [supplierStats, selectedSupplier]
   );
 
+  const expenseDateRange = useMemo(
+    () => normalizeSupplierDetailDateRange(filterDateFrom, filterDateTo),
+    [filterDateFrom, filterDateTo]
+  );
+
+  const filteredSupplierTxs = useMemo(() => {
+    if (!activeSupplier) return [];
+    let list = [...(activeSupplier.txs || [])];
+    if (expenseDateRange.active) {
+      const { dateFrom, dateTo } = expenseDateRange;
+      list = list.filter((tx) => {
+        const d = String(tx.date || "");
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      });
+    }
+    list.sort((a, b) => {
+      const c = String(b.date || "").localeCompare(String(a.date || ""));
+      if (c !== 0) return c;
+      return Number(b.id) - Number(a.id);
+    });
+    return list;
+  }, [activeSupplier, expenseDateRange]);
+
+  const filteredSupplierStats = useMemo(() => {
+    const total = filteredSupplierTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    return { total, count: filteredSupplierTxs.length };
+  }, [filteredSupplierTxs]);
+
   const activeClientTxName = txClients.find((c) => c.id === form.clientId)?.name;
 
   if (!selectedSupplier) return null;
@@ -198,12 +257,13 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
           >
             <Text style={styles.supplierDetailStatsLabel}>
               إجمالي المشتريات من {activeSupplier.name}
+              {expenseDateRange.active ? " (ضمن الفترة)" : ""}
             </Text>
             <Text style={styles.supplierDetailStatsValue}>
-              {fmt(activeSupplier.total)} {CURRENCY}
+              {fmt(filteredSupplierStats.total)} {CURRENCY}
             </Text>
             <Text style={styles.supplierDetailStatsCount}>
-              {activeSupplier.count} معاملة
+              {filteredSupplierStats.count} معاملة
             </Text>
           </View>
 
@@ -223,14 +283,107 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
             <Text style={styles.btnText}>+ إضافة مشتريات من {activeSupplier.name}</Text>
           </TouchableOpacity>
 
+          <View style={{ marginBottom: 14 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                backgroundColor: "rgba(15,23,42,0.55)",
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "rgba(139,92,246,0.28)",
+              }}
+            >
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}
+                activeOpacity={0.7}
+                onPress={() => setDateFiltersExpanded((v) => !v)}
+              >
+                <Text style={{ fontSize: 12, color: "#64748b" }}>📅</Text>
+                <Text
+                  style={{ fontSize: 13, color: "#e2e8f0", flexShrink: 1 }}
+                  numberOfLines={1}
+                >
+                  {expenseDateRange.active
+                    ? expenseDateRange.dateFrom && expenseDateRange.dateTo
+                      ? `${expenseDateRange.dateFrom} — ${expenseDateRange.dateTo}`
+                      : expenseDateRange.dateFrom
+                        ? `من ${expenseDateRange.dateFrom}`
+                        : `حتى ${expenseDateRange.dateTo}`
+                    : "فلترة المعاملات بالتاريخ"}
+                </Text>
+                <Text style={{ fontSize: 11, color: "#64748b" }}>
+                  {dateFiltersExpanded ? "▲" : "▼"}
+                </Text>
+              </TouchableOpacity>
+              {expenseDateRange.active ? (
+                <TouchableOpacity
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => {
+                    setFilterDateFrom("");
+                    setFilterDateTo("");
+                  }}
+                >
+                  <Text style={{ color: "#a78bfa", fontSize: 12 }}>مسح</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {dateFiltersExpanded ? (
+              <View style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <FormDateField
+                      styles={styles}
+                      label="من"
+                      value={filterDateFrom}
+                      onChangeValue={setFilterDateFrom}
+                      active={detailFilterDateFieldsActive(modal)}
+                      compact
+                    />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <FormDateField
+                      styles={styles}
+                      label="إلى"
+                      value={filterDateTo}
+                      onChangeValue={setFilterDateTo}
+                      active={detailFilterDateFieldsActive(modal)}
+                      compact
+                    />
+                  </View>
+                </View>
+                {(trimmed(filterDateFrom) !== "" || trimmed(filterDateTo) !== "") &&
+                !expenseDateRange.active ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setFilterDateFrom("");
+                      setFilterDateTo("");
+                    }}
+                    style={{ alignSelf: "flex-start", marginTop: 2 }}
+                  >
+                    <Text style={{ color: "#a78bfa", fontSize: 12 }}>مسح الحقول</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
           {activeSupplier.txs.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📭</Text>
               <Text style={styles.emptyText}>لا توجد معاملات</Text>
             </View>
+          ) : filteredSupplierTxs.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyIcon}>📭</Text>
+              <Text style={styles.emptyText}>لا توجد معاملات ضمن الفترة المحددة</Text>
+            </View>
           ) : (
             <View style={styles.txList}>
-              {[...activeSupplier.txs].reverse().map((tx) => (
+              {filteredSupplierTxs.map((tx) => (
                 <View key={tx.id} style={[styles.txItemStack, { borderColor: "rgba(251,146,60,0.3)" }]}>
                   <View style={styles.txItemRow}>
                     <Text style={styles.txIcon}>🔨</Text>
