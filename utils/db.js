@@ -617,6 +617,82 @@ export async function getGeneralTxs(fiscalYearId = null) {
   }
 }
 
+const GENERAL_INCOME_PAGE_DEFAULT = 5;
+
+/**
+ * Paginated general-ledger income rows for a fiscal year (`tx_kind = 'income'`).
+ * @returns {Promise<{ txs: Array<object>, hasMore: boolean }>}
+ */
+export async function getGeneralIncomeTxsPage(fiscalYearId, limit = GENERAL_INCOME_PAGE_DEFAULT, offset = 0) {
+  const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || GENERAL_INCOME_PAGE_DEFAULT));
+  const off = Math.max(0, Math.floor(Number(offset)) || 0);
+  const take = lim + 1;
+  if (fiscalYearId == null || fiscalYearId === "") {
+    return { txs: [], hasMore: false };
+  }
+  const fy = Number(fiscalYearId);
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let list = (state?.generalTxs || []).map((t) => ({
+        ...t,
+        txKind: t.txKind === "income" ? "income" : "expense",
+      }));
+      list = list.filter((t) => Number(t.fiscalYearId) === fy && t.txKind === "income");
+      list.sort((a, b) => {
+        const c = String(b.date || "").localeCompare(String(a.date || ""));
+        if (c !== 0) return c;
+        return Number(b.id) - Number(a.id);
+      });
+      const slice = list.slice(off, off + take);
+      const hasMore = slice.length > lim;
+      const rows = hasMore ? slice.slice(0, lim) : slice;
+      return { txs: rows, hasMore };
+    }
+    return await runDb(async (database) => {
+      const sql =
+        "SELECT id, amount, cat, note, date, fiscal_year_id, tx_kind FROM general WHERE fiscal_year_id = ? AND tx_kind = 'income' ORDER BY date DESC, id DESC LIMIT ? OFFSET ?";
+      const rows = await database.getAllAsync(sql, fy, take, off);
+      const hasMore = rows.length > lim;
+      const pageRows = hasMore ? rows.slice(0, lim) : rows;
+      return { txs: pageRows.map((r) => mapGeneralRow(r)), hasMore };
+    });
+  } catch (e) {
+    console.warn("DB getGeneralIncomeTxsPage error:", e?.message || e);
+    clearDbOnError(e);
+    return { txs: [], hasMore: false };
+  }
+}
+
+/** Sum of all general income amounts for the fiscal year (for header total). */
+export async function getGeneralIncomeTotalAmount(fiscalYearId) {
+  if (fiscalYearId == null || fiscalYearId === "") return 0;
+  const fy = Number(fiscalYearId);
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const list = (state?.generalTxs || []).map((t) => ({
+        ...t,
+        txKind: t.txKind === "income" ? "income" : "expense",
+      }));
+      return list
+        .filter((t) => Number(t.fiscalYearId) === fy && t.txKind === "income")
+        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    }
+    return await runDb(async (database) => {
+      const row = await database.getFirstAsync(
+        "SELECT COALESCE(SUM(amount), 0) AS s FROM general WHERE fiscal_year_id = ? AND tx_kind = 'income'",
+        fy
+      );
+      return Number(row?.s) || 0;
+    });
+  } catch (e) {
+    console.warn("DB getGeneralIncomeTotalAmount error:", e?.message || e);
+    clearDbOnError(e);
+    return 0;
+  }
+}
+
 /** Get all workers. Returns [] on error. On web reads from AsyncStorage. */
 export async function getWorkers() {
   try {
