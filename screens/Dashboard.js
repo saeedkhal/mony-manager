@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { BarChart } from "react-native-chart-kit";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
-import { getClients, getGeneralTxs } from "../utils/db";
+import { getClients, getClientsPage, getGeneralTxs } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles, { SCREEN_WIDTH } from "../styles/AppStyles";
@@ -24,29 +24,69 @@ const chartConfig = {
   },
 };
 
+/** Page size for «ملخص العملاء» list only (charts/stats still use full `getClients()`). */
+const DASH_CLIENT_SUMMARY_PAGE = 5;
+
 export default function Dashboard() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel } = useApp();
   const isFocused = useIsFocused();
   const navigation = useNavigation();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
+  const [summaryClients, setSummaryClients] = useState([]);
+  const [summaryHasMore, setSummaryHasMore] = useState(false);
+  const [summaryLoadingMore, setSummaryLoadingMore] = useState(false);
+  const summaryClientsRef = useRef([]);
+
+  useEffect(() => {
+    summaryClientsRef.current = summaryClients;
+  }, [summaryClients]);
 
   useEffect(() => {
     if (!loaded || !isFocused || activeFiscalYearId == null) return;
     let cancelled = false;
-    Promise.all([getClients(), getGeneralTxs(activeFiscalYearId)])
-      .then(([c, g]) => {
+    setSummaryClients([]);
+    setSummaryHasMore(false);
+    Promise.all([
+      getClients(),
+      getGeneralTxs(activeFiscalYearId),
+      getClientsPage(DASH_CLIENT_SUMMARY_PAGE, 0),
+    ])
+      .then(([c, g, { clients: first, hasMore }]) => {
         if (!cancelled) {
           setClients(c || []);
           setGeneralTxs(g || []);
+          setSummaryClients(first || []);
+          setSummaryHasMore(!!hasMore);
         }
       })
       .catch(() => {
-        if (!cancelled) setClients([]);
-        if (!cancelled) setGeneralTxs([]);
+        if (!cancelled) {
+          setClients([]);
+          setGeneralTxs([]);
+          setSummaryClients([]);
+          setSummaryHasMore(false);
+        }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [loaded, isFocused, activeFiscalYearId]);
+
+  const loadMoreSummaryClients = useCallback(async () => {
+    if (!summaryHasMore || summaryLoadingMore || activeFiscalYearId == null) return;
+    const offset = summaryClientsRef.current.length;
+    setSummaryLoadingMore(true);
+    try {
+      const { clients: next, hasMore: hm } = await getClientsPage(DASH_CLIENT_SUMMARY_PAGE, offset);
+      setSummaryClients((prev) => [...prev, ...(next || [])]);
+      setSummaryHasMore(!!hm);
+    } catch (_) {
+      setSummaryHasMore(false);
+    } finally {
+      setSummaryLoadingMore(false);
+    }
+  }, [summaryHasMore, summaryLoadingMore, activeFiscalYearId]);
 
   const appData = useAppData(clients, generalTxs, [], [], activeFiscalYearId, activeFiscalYearLabel);
   const {
@@ -146,35 +186,49 @@ export default function Dashboard() {
 
       {fyClients.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>👥 ملخص العملاء</Text>
-          {[...fyClients]
-            .sort((a, b) => clientTotals(b).profit - clientTotals(a).profit)
-            .map((c) => {
-              const t = clientTotals(c);
-              const s = STATUS_LABELS[c.status];
-              return (
-                <TouchableOpacity
-                  key={c.id}
-                  style={styles.clientSummaryItem}
-                  onPress={() => navigation.navigate("clients")}
-                >
-                  <View style={styles.clientSummaryInfo}>
-                    <Text style={styles.clientSummaryName}>{c.name}</Text>
-                    <Text style={styles.clientSummaryProject}>{c.project}</Text>
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: s.bg }]}>
-                    <Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text>
-                  </View>
-                  <View style={styles.clientSummaryProfit}>
-                    <Text style={[styles.clientSummaryProfitText, { color: t.profit >= 0 ? "#10b981" : "#f43f5e" }]}>
-                      {t.profit >= 0 ? "+" : ""}
-                      {fmt(t.profit)} {CURRENCY}
-                    </Text>
-                    <Text style={styles.clientSummaryProfitLabel}>صافي ربح</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+          <Text style={styles.cardTitle}>👥 ملخص العملاء (الأحدث)</Text>
+          <Text style={[styles.sectionSubtitle, { marginBottom: 12, marginTop: -8 }]}>
+            {DASH_CLIENT_SUMMARY_PAGE} عملاء لكل دفعة — الإحصائيات والرسوم أعلاه تشمل الجميع.
+          </Text>
+          {summaryClients.map((c) => {
+            const t = clientTotals(c);
+            const s = STATUS_LABELS[c.status];
+            return (
+              <TouchableOpacity
+                key={c.id}
+                style={styles.clientSummaryItem}
+                onPress={() => navigation.navigate("clients", { openClientId: c.id })}
+              >
+                <View style={styles.clientSummaryInfo}>
+                  <Text style={styles.clientSummaryName}>{c.name}</Text>
+                  <Text style={styles.clientSummaryProject}>{c.project}</Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: s.bg }]}>
+                  <Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text>
+                </View>
+                <View style={styles.clientSummaryProfit}>
+                  <Text style={[styles.clientSummaryProfitText, { color: t.profit >= 0 ? "#10b981" : "#f43f5e" }]}>
+                    {t.profit >= 0 ? "+" : ""}
+                    {fmt(t.profit)} {CURRENCY}
+                  </Text>
+                  <Text style={styles.clientSummaryProfitLabel}>صافي ربح</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+          {summaryHasMore ? (
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary, { width: "100%", marginTop: 12 }]}
+              onPress={loadMoreSummaryClients}
+              disabled={summaryLoadingMore}
+            >
+              {summaryLoadingMore ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>تحميل المزيد</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
 

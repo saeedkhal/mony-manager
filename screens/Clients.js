@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
+import { useRoute, useNavigation } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { getClientsPage, getActiveFiscalYear, getActiveFiscalYearId, upsertClient } from "../utils/db";
 import { STATUS_LABELS, PROJECT_TYPES } from "../constants";
@@ -14,6 +15,8 @@ import { FORM_MSG, trimmed } from "../utils/formValidation";
 const CLIENTS_PAGE_SIZE = 5;
 
 export default function Clients() {
+  const route = useRoute();
+  const navigation = useNavigation();
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
   const [formErrors, setFormErrors] = useState({});
   const [clients, setClients] = useState([]);
@@ -34,6 +37,16 @@ export default function Clients() {
   useEffect(() => {
     clientsRef.current = clients;
   }, [clients]);
+
+  /** Open a specific client (e.g. from Dashboard «ملخص العملاء»). */
+  useEffect(() => {
+    const raw = route.params?.openClientId;
+    if (raw == null || raw === "") return;
+    const id = typeof raw === "number" && !Number.isNaN(raw) ? raw : Number(raw);
+    if (Number.isNaN(id)) return;
+    setSelectedClient(id);
+    navigation.setParams({ openClientId: undefined });
+  }, [route.params?.openClientId, navigation]);
 
   useEffect(() => {
     if (!loaded || activeFiscalYearId == null) return;
