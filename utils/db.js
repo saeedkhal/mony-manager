@@ -884,6 +884,115 @@ export async function getSuppliers() {
   }
 }
 
+const SUPPLIERS_PAGE_DEFAULT = 5;
+
+function mapSupplierRow(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    phone: r.phone || "",
+    category: r.category || "",
+  };
+}
+
+/**
+ * Paginated suppliers, newest first (`ORDER BY id DESC`).
+ * @param {{ nameContains?: string }} [options] — optional case-insensitive substring match on `name`
+ * @returns {Promise<{ suppliers: Array<object>, hasMore: boolean }>}
+ */
+export async function getSuppliersPage(limit = SUPPLIERS_PAGE_DEFAULT, offset = 0, options = {}) {
+  const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || SUPPLIERS_PAGE_DEFAULT));
+  const off = Math.max(0, Math.floor(Number(offset)) || 0);
+  const take = lim + 1;
+  const nameQ =
+    typeof options.nameContains === "string" ? String(options.nameContains).trim() : "";
+  const useNameFilter = nameQ.length > 0;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let all = [...(state?.suppliers || [])];
+      if (useNameFilter) {
+        const low = nameQ.toLowerCase();
+        all = all.filter((s) => (s.name || "").toLowerCase().includes(low));
+      }
+      all.sort((a, b) => Number(b.id) - Number(a.id));
+      const slice = all.slice(off, off + take);
+      const hasMore = slice.length > lim;
+      const rows = hasMore ? slice.slice(0, lim) : slice;
+      return {
+        suppliers: rows.map((s) => ({
+          id: s.id,
+          name: s.name || "",
+          phone: s.phone || "",
+          category: s.category || "",
+        })),
+        hasMore,
+      };
+    }
+    return await runDb(async (database) => {
+      const sqlBase = useNameFilter
+        ? "SELECT id, name, phone, category FROM suppliers WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC"
+        : "SELECT id, name, phone, category FROM suppliers ORDER BY id DESC";
+      const baseParams = useNameFilter ? [nameQ] : [];
+      const rows = await database.getAllAsync(
+        `${sqlBase} LIMIT ? OFFSET ?`,
+        ...baseParams,
+        take,
+        off
+      );
+      const hasMore = rows.length > lim;
+      const pageRows = hasMore ? rows.slice(0, lim) : rows;
+      return { suppliers: pageRows.map((r) => mapSupplierRow(r)), hasMore };
+    });
+  } catch (e) {
+    console.warn("DB getSuppliersPage error:", e?.message || e);
+    clearDbOnError(e);
+    return { suppliers: [], hasMore: false };
+  }
+}
+
+/**
+ * Aggregate purchase stats per supplier from expense client_transactions with supplier_id.
+ * Keys are stringified supplier ids. Values: { total, count }.
+ */
+export async function getSupplierPurchaseStatsMap() {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const out = {};
+      for (const c of state?.clients || []) {
+        for (const t of c.txs || []) {
+          if (t.type !== "expense" || t.supplierId == null) continue;
+          const sid = String(t.supplierId);
+          if (!out[sid]) out[sid] = { total: 0, count: 0 };
+          out[sid].total += Number(t.amount) || 0;
+          out[sid].count += 1;
+        }
+      }
+      return out;
+    }
+    return await runDb(async (database) => {
+      const rows = await database.getAllAsync(
+        `SELECT supplier_id AS sid, COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
+         FROM client_transactions
+         WHERE type = 'expense' AND supplier_id IS NOT NULL
+         GROUP BY supplier_id`
+      );
+      const out = {};
+      for (const r of rows || []) {
+        if (r.sid == null) continue;
+        const key = String(r.sid);
+        out[key] = { total: Number(r.total) || 0, count: Number(r.cnt) || 0 };
+      }
+      return out;
+    });
+  } catch (e) {
+    console.warn("DB getSupplierPurchaseStatsMap error:", e?.message || e);
+    clearDbOnError(e);
+    return {};
+  }
+}
+
 /** Get settings only (nissabPrice). Fiscal years come from fiscal_years table. On web reads nissabPrice from AsyncStorage. */
 export async function getSettings() {
   try {
