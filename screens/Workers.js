@@ -1,7 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getWorkers, getClients, deleteWorker as dbDeleteWorker, upsertWorker } from "../utils/db";
+import {
+  getWorkersPage,
+  getWorkerExpenseStatsMap,
+  deleteWorker as dbDeleteWorker,
+  upsertWorker,
+  getWorkers,
+} from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -11,54 +17,121 @@ import CustomModal from "../components/Modal";
 import FormTextInput from "../components/FormTextInput";
 import { FORM_MSG, trimmed } from "../utils/formValidation";
 
+const WORKERS_PAGE_SIZE = 5;
+
 export default function Workers() {
   const { loaded, modal, setForm, setModal, form } = useApp();
   const [formErrors, setFormErrors] = useState({});
 
   const [workers, setWorkers] = useState([]);
-  const [clients, setClients] = useState([]);
+  const [expenseStatsMap, setExpenseStatsMap] = useState({});
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [selectedWorker, setSelectedWorker] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const listFetchGen = useRef(0);
+  const workersRef = useRef([]);
 
-  const deleteWorker = async (id) => {
-    try {
-      await dbDeleteWorker(id);
-    } catch (_) {}
-  };
+  const pageOptions = useMemo(
+    () => (appliedSearch ? { nameContains: appliedSearch } : {}),
+    [appliedSearch]
+  );
 
   useEffect(() => {
-    if (!loaded) return;
+    workersRef.current = workers;
+  }, [workers]);
+
+  useEffect(() => {
+    if (!loaded || selectedWorker != null) return;
+    listFetchGen.current += 1;
+    const gen = listFetchGen.current;
     let cancelled = false;
     setLoading(true);
-    Promise.all([getWorkers(), getClients()])
-      .then(([w, c]) => {
-        if (!cancelled) {
-          setWorkers(w || []);
-          setClients(c || []);
-        }
+    setWorkers([]);
+    setHasMore(true);
+    setExpenseStatsMap({});
+    Promise.all([
+      getWorkersPage(WORKERS_PAGE_SIZE, 0, pageOptions),
+      getWorkerExpenseStatsMap(),
+    ])
+      .then(([{ workers: first, hasMore: hm }, stats]) => {
+        if (cancelled || gen !== listFetchGen.current) return;
+        setWorkers(first || []);
+        setHasMore(!!hm);
+        setExpenseStatsMap(stats && typeof stats === "object" ? stats : {});
       })
       .catch(() => {
-        if (!cancelled) setWorkers([]);
-        if (!cancelled) setClients([]);
+        if (cancelled || gen !== listFetchGen.current) return;
+        setWorkers([]);
+        setHasMore(false);
+        setExpenseStatsMap({});
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [loaded, modal]);
+      .finally(() => {
+        if (!cancelled && gen === listFetchGen.current) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, selectedWorker, pageOptions]);
+
+  const loadMoreWorkers = useCallback(async () => {
+    if (!hasMore || loadingMore || loading || selectedWorker != null) return;
+    const gen = listFetchGen.current;
+    const offset = workersRef.current.length;
+    setLoadingMore(true);
+    try {
+      const { workers: next, hasMore: hm } = await getWorkersPage(
+        WORKERS_PAGE_SIZE,
+        offset,
+        pageOptions
+      );
+      if (gen !== listFetchGen.current) return;
+      setWorkers((prev) => [...prev, ...(next || [])]);
+      setHasMore(!!hm);
+    } catch (_) {
+      if (gen === listFetchGen.current) setHasMore(false);
+    } finally {
+      if (gen === listFetchGen.current) setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, loading, selectedWorker, pageOptions]);
+
+  const onScrollWorkers = useCallback(
+    (e) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const threshold = 120;
+      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold) {
+        loadMoreWorkers();
+      }
+    },
+    [loadMoreWorkers]
+  );
 
   const workerStats = useMemo(() => {
-    return (workers || [])
-      .map((w) => {
-        const matchingTxs = (clients || []).flatMap((c) =>
-          (c.txs || [])
-            .filter((t) => t.type === "expense" && t.workerId === w.id)
-            .map((t) => ({ ...t, clientId: c.id, clientName: c.name }))
-        );
-        const total = matchingTxs.reduce((s, t) => s + t.amount, 0);
-        const count = matchingTxs.length;
-        return { ...w, total, count, txs: matchingTxs };
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [workers, clients]);
+    return (workers || []).map((w) => {
+      const st = expenseStatsMap[String(w.id)] || { total: 0, count: 0 };
+      return { ...w, total: st.total, count: st.count, txs: [] };
+    });
+  }, [workers, expenseStatsMap]);
+
+  const removeWorker = async (id) => {
+    try {
+      await dbDeleteWorker(id);
+      if (String(selectedWorker) === String(id)) setSelectedWorker(null);
+      listFetchGen.current += 1;
+      const gen = listFetchGen.current;
+      const [{ workers: first, hasMore: hm }, stats] = await Promise.all([
+        getWorkersPage(WORKERS_PAGE_SIZE, 0, pageOptions),
+        getWorkerExpenseStatsMap(),
+      ]);
+      if (gen === listFetchGen.current) {
+        setWorkers(first || []);
+        setHasMore(!!hm);
+        setExpenseStatsMap(stats && typeof stats === "object" ? stats : {});
+      }
+    } catch (_) {}
+  };
 
   const saveWorker = async () => {
     if (!trimmed(form.name)) {
@@ -79,9 +152,17 @@ export default function Workers() {
           phone: form.phone || "",
         });
       }
-      const [w, c] = await Promise.all([getWorkers(), getClients()]);
-      setWorkers(w || []);
-      setClients(c || []);
+      listFetchGen.current += 1;
+      const gen = listFetchGen.current;
+      const [{ workers: first, hasMore: hm }, stats] = await Promise.all([
+        getWorkersPage(WORKERS_PAGE_SIZE, 0, pageOptions),
+        getWorkerExpenseStatsMap(),
+      ]);
+      if (gen === listFetchGen.current) {
+        setWorkers(first || []);
+        setHasMore(!!hm);
+        setExpenseStatsMap(stats && typeof stats === "object" ? stats : {});
+      }
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -137,7 +218,7 @@ export default function Workers() {
     );
   }
 
-  if (loading) {
+  if (loading && workers.length === 0) {
     return (
       <>
         <View style={styles.workersView}>
@@ -150,10 +231,10 @@ export default function Workers() {
 
   return (
     <>
-      <ScreenLayout>
+      <ScreenLayout scrollViewProps={{ onScroll: onScrollWorkers, scrollEventThrottle: 400 }}>
         <View style={styles.workersView}>
           <TouchableOpacity
-            style={[styles.btn, styles.btnWorker, { marginBottom: 16, alignSelf: "flex-start" }]}
+            style={[styles.btn, styles.btnWorker, { marginBottom: 12, alignSelf: "flex-start" }]}
             onPress={() => {
               setFormErrors({});
               setForm({});
@@ -162,58 +243,94 @@ export default function Workers() {
           >
             <Text style={styles.btnText}>+ صنايعي جديد</Text>
           </TouchableOpacity>
+          <View style={[styles.inputGroup, { marginBottom: 12 }]}>
+            <Text style={styles.inputLabel}>بحث باسم الصنايعي</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <FormTextInput
+                  styles={styles}
+                  placeholder="اكتب جزءاً من الاسم ثم اضغط بحث"
+                  placeholderTextColor="#64748b"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+              </View>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnWorker, { paddingVertical: 11, paddingHorizontal: 18 }]}
+                onPress={() => setAppliedSearch(trimmed(searchQuery))}
+              >
+                <Text style={styles.btnText}>بحث</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           {workers.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>👷</Text>
-              <Text style={styles.emptyText}>لا يوجد صنايعية بعد</Text>
+              <Text style={styles.emptyText}>
+                {appliedSearch
+                  ? "لا يوجد صنايعية يطابقون البحث. جرّب اسمًا آخر أو امسح النص واضغط بحث."
+                  : "لا يوجد صنايعية بعد"}
+              </Text>
             </View>
           ) : (
-            <View style={styles.workersGrid}>
-              {workerStats.map((w) => (
-                <TouchableOpacity
-                  key={w.id}
-                  style={styles.workerCard}
-                  onPress={() => setSelectedWorker(w.id)}
-                >
-                  <View style={styles.workerCardHeader}>
-                    <View>
-                      <Text style={styles.workerCardName}>👷 {w.name}</Text>
-                      {w.phone && <Text style={styles.workerCardPhone}>📞 {w.phone}</Text>}
+            <>
+              {appliedSearch ? (
+                <Text style={[styles.sectionSubtitle, { marginBottom: 10 }]}>
+                  نتائج البحث عن «{appliedSearch}»
+                </Text>
+              ) : null}
+              <View style={styles.workersGrid}>
+                {workerStats.map((w) => (
+                  <TouchableOpacity
+                    key={w.id}
+                    style={styles.workerCard}
+                    onPress={() => setSelectedWorker(w.id)}
+                  >
+                    <View style={styles.workerCardHeader}>
+                      <View>
+                        <Text style={styles.workerCardName}>👷 {w.name}</Text>
+                        {w.phone && <Text style={styles.workerCardPhone}>📞 {w.phone}</Text>}
+                      </View>
+                      <View style={styles.workerCardActions}>
+                        <TouchableOpacity
+                          style={styles.iconBtn}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            setFormErrors({});
+                            setForm({ editId: w.id, name: w.name, phone: w.phone });
+                            setModal("addWorker");
+                          }}
+                        >
+                          <Text style={styles.iconBtnText}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.iconBtn, styles.iconBtnDanger]}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            removeWorker(w.id);
+                          }}
+                        >
+                          <Text style={styles.iconBtnText}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <View style={styles.workerCardActions}>
-                      <TouchableOpacity
-                        style={styles.iconBtn}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          setFormErrors({});
-                          setForm({ editId: w.id, name: w.name, phone: w.phone });
-                          setModal("addWorker");
-                        }}
-                      >
-                        <Text style={styles.iconBtnText}>✏️</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.iconBtn, styles.iconBtnDanger]}
-                        onPress={async (e) => {
-                          e.stopPropagation();
-                          await deleteWorker(w.id);
-                          if (selectedWorker === w.id) setSelectedWorker(null);
-                        }}
-                      >
-                        <Text style={styles.iconBtnText}>🗑️</Text>
-                      </TouchableOpacity>
+                    <View style={styles.workerCardStats}>
+                      <Text style={styles.workerCardStatsLabel}>إجمالي المصروفات</Text>
+                      <Text style={styles.workerCardStatsValue}>
+                        {fmt(w.total)} {CURRENCY}
+                      </Text>
+                      <Text style={styles.workerCardStatsCount}>{w.count} معاملة</Text>
                     </View>
-                  </View>
-                  <View style={styles.workerCardStats}>
-                    <Text style={styles.workerCardStatsLabel}>إجمالي المصروفات</Text>
-                    <Text style={styles.workerCardStatsValue}>
-                      {fmt(w.total)} {CURRENCY}
-                    </Text>
-                    <Text style={styles.workerCardStatsCount}>{w.count} معاملة</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {loadingMore ? (
+                <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                  <ActivityIndicator color="#f59e0b" />
+                  <Text style={[styles.loadingText, { marginTop: 8, fontSize: 13 }]}>جاري التحميل...</Text>
+                </View>
+              ) : null}
+            </>
           )}
         </View>
       </ScreenLayout>

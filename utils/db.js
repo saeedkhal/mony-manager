@@ -861,6 +861,109 @@ export async function getWorkers() {
   }
 }
 
+const WORKERS_PAGE_DEFAULT = 5;
+
+function mapWorkerRow(r) {
+  return { id: r.id, name: r.name, phone: r.phone || "" };
+}
+
+/**
+ * Paginated workers, newest first (`ORDER BY id DESC`).
+ * @param {{ nameContains?: string }} [options] — optional case-insensitive substring match on `name`
+ * @returns {Promise<{ workers: Array<object>, hasMore: boolean }>}
+ */
+export async function getWorkersPage(limit = WORKERS_PAGE_DEFAULT, offset = 0, options = {}) {
+  const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || WORKERS_PAGE_DEFAULT));
+  const off = Math.max(0, Math.floor(Number(offset)) || 0);
+  const take = lim + 1;
+  const nameQ =
+    typeof options.nameContains === "string" ? String(options.nameContains).trim() : "";
+  const useNameFilter = nameQ.length > 0;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let all = [...(state?.workers || [])];
+      if (useNameFilter) {
+        const low = nameQ.toLowerCase();
+        all = all.filter((w) => (w.name || "").toLowerCase().includes(low));
+      }
+      all.sort((a, b) => Number(b.id) - Number(a.id));
+      const slice = all.slice(off, off + take);
+      const hasMore = slice.length > lim;
+      const rows = hasMore ? slice.slice(0, lim) : slice;
+      return {
+        workers: rows.map((w) => ({
+          id: w.id,
+          name: w.name || "",
+          phone: w.phone || "",
+        })),
+        hasMore,
+      };
+    }
+    return await runDb(async (database) => {
+      const sqlBase = useNameFilter
+        ? "SELECT id, name, phone FROM workers WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC"
+        : "SELECT id, name, phone FROM workers ORDER BY id DESC";
+      const baseParams = useNameFilter ? [nameQ] : [];
+      const rows = await database.getAllAsync(
+        `${sqlBase} LIMIT ? OFFSET ?`,
+        ...baseParams,
+        take,
+        off
+      );
+      const hasMore = rows.length > lim;
+      const pageRows = hasMore ? rows.slice(0, lim) : rows;
+      return { workers: pageRows.map((r) => mapWorkerRow(r)), hasMore };
+    });
+  } catch (e) {
+    console.warn("DB getWorkersPage error:", e?.message || e);
+    clearDbOnError(e);
+    return { workers: [], hasMore: false };
+  }
+}
+
+/**
+ * Aggregate expense stats per worker from client_transactions with worker_id.
+ * Keys are stringified worker ids. Values: { total, count }.
+ */
+export async function getWorkerExpenseStatsMap() {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const out = {};
+      for (const c of state?.clients || []) {
+        for (const t of c.txs || []) {
+          if (t.type !== "expense" || t.workerId == null) continue;
+          const wid = String(t.workerId);
+          if (!out[wid]) out[wid] = { total: 0, count: 0 };
+          out[wid].total += Number(t.amount) || 0;
+          out[wid].count += 1;
+        }
+      }
+      return out;
+    }
+    return await runDb(async (database) => {
+      const rows = await database.getAllAsync(
+        `SELECT worker_id AS wid, COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
+         FROM client_transactions
+         WHERE type = 'expense' AND worker_id IS NOT NULL
+         GROUP BY worker_id`
+      );
+      const out = {};
+      for (const r of rows || []) {
+        if (r.wid == null) continue;
+        const key = String(r.wid);
+        out[key] = { total: Number(r.total) || 0, count: Number(r.cnt) || 0 };
+      }
+      return out;
+    });
+  } catch (e) {
+    console.warn("DB getWorkerExpenseStatsMap error:", e?.message || e);
+    clearDbOnError(e);
+    return {};
+  }
+}
+
 /** Get all suppliers. Returns [] on error. On web reads from AsyncStorage. */
 export async function getSuppliers() {
   try {
