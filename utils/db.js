@@ -385,7 +385,7 @@ export async function getFullState() {
     if (IS_WEB) return getWebState();
     return await runDb(async (database) => {
       const clientsRows = await database.getAllAsync(
-        "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id"
+        "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id DESC"
       );
       const txRows = await database.getAllAsync(
         "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
@@ -456,8 +456,8 @@ export async function getClients() {
       const fyId = await getActiveFiscalYearIdWithDb(database);
       const sql =
         fyId != null
-          ? "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE fiscal_year_id = ? ORDER BY id"
-          : "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id";
+          ? "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE fiscal_year_id = ? ORDER BY id DESC"
+          : "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id DESC";
       const clientsRows =
         fyId != null
           ? await database.getAllAsync(sql, fyId)
@@ -471,6 +471,82 @@ export async function getClients() {
     console.warn("DB getClients error:", e?.message || e);
     clearDbOnError(e);
     return [];
+  }
+}
+
+const CLIENTS_PAGE_DEFAULT = 5;
+
+/**
+ * Paginated clients (same fiscal filter as getClients), with txs only for returned rows.
+ * Requests `limit + 1` rows internally to set `hasMore` without a separate COUNT.
+ * @param {number} [limit=5] — page size (capped 1–50)
+ * @param {number} [offset=0]
+ * @param {{ nameContains?: string }} [options] — optional case-insensitive substring match on `name`
+ * @returns {Promise<{ clients: [], hasMore: boolean }>}
+ */
+export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, options = {}) {
+  const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || CLIENTS_PAGE_DEFAULT));
+  const off = Math.max(0, Math.floor(Number(offset)) || 0);
+  const take = lim + 1;
+  const nameQ =
+    typeof options.nameContains === "string" ? String(options.nameContains).trim() : "";
+  const useNameFilter = nameQ.length > 0;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let all = state ? [...(state.clients || [])] : [];
+      if (useNameFilter) {
+        const low = nameQ.toLowerCase();
+        all = all.filter((c) => (c.name || "").toLowerCase().includes(low));
+      }
+      all.sort((a, b) => Number(b.id) - Number(a.id));
+      const slice = all.slice(off, off + take);
+      const hasMore = slice.length > lim;
+      const rows = hasMore ? slice.slice(0, lim) : slice;
+      const clients = rows.map((c) => ({
+        ...c,
+        txs: Array.isArray(c.txs) ? c.txs : [],
+      }));
+      return { clients, hasMore };
+    }
+    return await runDb(async (database) => {
+      const fyId = await getActiveFiscalYearIdWithDb(database);
+      const nameClause = useNameFilter ? " AND instr(lower(name), lower(?)) > 0" : "";
+      let sqlBase;
+      let baseParams;
+      if (fyId != null) {
+        sqlBase = `SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC`;
+        baseParams = useNameFilter ? [fyId, nameQ] : [fyId];
+      } else {
+        sqlBase = useNameFilter
+          ? `SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC`
+          : "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id DESC";
+        baseParams = useNameFilter ? [nameQ] : [];
+      }
+      const clientsRows = await database.getAllAsync(
+        `${sqlBase} LIMIT ? OFFSET ?`,
+        ...baseParams,
+        take,
+        off
+      );
+      const hasMore = clientsRows.length > lim;
+      const pageRows = hasMore ? clientsRows.slice(0, lim) : clientsRows;
+      const ids = pageRows.map((c) => c.id);
+      let txRows = [];
+      if (ids.length > 0) {
+        const ph = ids.map(() => "?").join(",");
+        txRows = await database.getAllAsync(
+          `SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions WHERE client_id IN (${ph}) ORDER BY client_id, id`,
+          ...ids
+        );
+      }
+      const clients = pageRows.map((c) => rowToClient(c, txRows));
+      return { clients, hasMore };
+    });
+  } catch (e) {
+    console.warn("DB getClientsPage error:", e?.message || e);
+    clearDbOnError(e);
+    return { clients: [], hasMore: false };
   }
 }
 

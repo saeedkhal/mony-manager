@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getClients, getActiveFiscalYear, getActiveFiscalYearId, upsertClient } from "../utils/db";
+import { getClientsPage, getActiveFiscalYear, getActiveFiscalYearId, upsertClient } from "../utils/db";
 import { STATUS_LABELS, PROJECT_TYPES } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -11,23 +11,85 @@ import CustomModal from "../components/Modal";
 import FormTextInput from "../components/FormTextInput";
 import { FORM_MSG, trimmed } from "../utils/formValidation";
 
+const CLIENTS_PAGE_SIZE = 5;
+
 export default function Clients() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
   const [formErrors, setFormErrors] = useState({});
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  /** Applied filter only after user taps «بحث» (not while typing). */
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const listFetchGen = useRef(0);
+  const clientsRef = useRef([]);
+  const pageOptions = useMemo(
+    () => (appliedSearch ? { nameContains: appliedSearch } : {}),
+    [appliedSearch]
+  );
+
+  useEffect(() => {
+    clientsRef.current = clients;
+  }, [clients]);
 
   useEffect(() => {
     if (!loaded || activeFiscalYearId == null) return;
+    if (selectedClient != null) return;
+    listFetchGen.current += 1;
+    const gen = listFetchGen.current;
     let cancelled = false;
     setLoading(true);
-    getClients()
-      .then((list) => { if (!cancelled) setClients(list || []); })
-      .catch(() => { if (!cancelled) setClients([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [loaded, activeFiscalYearId, modal]);
+    setClients([]);
+    setHasMore(true);
+    getClientsPage(CLIENTS_PAGE_SIZE, 0, pageOptions)
+      .then(({ clients: first, hasMore: hm }) => {
+        if (cancelled || gen !== listFetchGen.current) return;
+        setClients(first || []);
+        setHasMore(!!hm);
+      })
+      .catch(() => {
+        if (cancelled || gen !== listFetchGen.current) return;
+        setClients([]);
+        setHasMore(false);
+      })
+      .finally(() => {
+        if (!cancelled && gen === listFetchGen.current) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, activeFiscalYearId, selectedClient, pageOptions]);
+
+  const loadMoreClients = useCallback(async () => {
+    if (!hasMore || loadingMore || loading) return;
+    const gen = listFetchGen.current;
+    const offset = clientsRef.current.length;
+    setLoadingMore(true);
+    try {
+      const { clients: next, hasMore: hm } = await getClientsPage(CLIENTS_PAGE_SIZE, offset, pageOptions);
+      if (gen !== listFetchGen.current) return;
+      setClients((prev) => [...prev, ...(next || [])]);
+      setHasMore(!!hm);
+    } catch (_) {
+      if (gen === listFetchGen.current) setHasMore(false);
+    } finally {
+      if (gen === listFetchGen.current) setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, loading, pageOptions]);
+
+  const onScrollClients = useCallback(
+    (e) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const threshold = 120;
+      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold) {
+        loadMoreClients();
+      }
+    },
+    [loadMoreClients]
+  );
 
   const saveClient = async () => {
     if (!trimmed(form.name)) {
@@ -49,8 +111,13 @@ export default function Clients() {
     };
     try {
       await upsertClient(newClient);
-      const list = await getClients();
-      setClients(list || []);
+      listFetchGen.current += 1;
+      const gen = listFetchGen.current;
+      const { clients: first, hasMore: hm } = await getClientsPage(CLIENTS_PAGE_SIZE, 0, pageOptions);
+      if (gen === listFetchGen.current) {
+        setClients(first || []);
+        setHasMore(!!hm);
+      }
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -147,7 +214,7 @@ export default function Clients() {
 
   return (
     <>
-      <ScreenLayout>
+      <ScreenLayout scrollViewProps={{ onScroll: onScrollClients, scrollEventThrottle: 400 }}>
         <View style={styles.clientsView}>
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary, { marginBottom: 16, alignSelf: "flex-start" }]}
@@ -159,15 +226,41 @@ export default function Clients() {
           >
             <Text style={styles.btnText}>+ عميل جديد</Text>
           </TouchableOpacity>
+          <View style={[styles.inputGroup, { marginBottom: 8 }]}>
+            <Text style={styles.inputLabel}>بحث باسم العميل</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <FormTextInput
+                  styles={styles}
+                  placeholder="اكتب جزءاً من الاسم ثم اضغط بحث"
+                  placeholderTextColor="#64748b"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+              </View>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnPrimary, { paddingVertical: 11, paddingHorizontal: 18 }]}
+                onPress={() => setAppliedSearch(trimmed(searchQuery))}
+              >
+                <Text style={styles.btnText}>بحث</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           {clients.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>👥</Text>
-              <Text style={styles.emptyText}>لا يوجد عملاء بعد، ابدأ بإضافة عميل!</Text>
+              <Text style={styles.emptyText}>
+                {appliedSearch
+                  ? "لا توجد عملاء يطابقون البحث. جرّب كلمات أخرى أو احذف النص واضغط بحث."
+                  : "لا يوجد عملاء بعد، ابدأ بإضافة عميل!"}
+              </Text>
             </View>
           ) : (
             <>
               <Text style={styles.sectionSubtitle}>
-                جميع العملاء — السنة المالية {activeFiscalYearLabel}
+                {appliedSearch
+                  ? `نتائج البحث عن «${appliedSearch}» — السنة المالية ${activeFiscalYearLabel}`
+                  : `جميع العملاء — السنة المالية ${activeFiscalYearLabel}`}
               </Text>
               <View style={styles.clientsGrid}>
                 {clientsWithYearTxs.map((c) => {
@@ -215,6 +308,12 @@ export default function Clients() {
                   );
                 })}
               </View>
+              {loadingMore ? (
+                <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                  <ActivityIndicator color="#818cf8" />
+                  <Text style={[styles.loadingText, { marginTop: 8, fontSize: 13 }]}>جاري التحميل...</Text>
+                </View>
+              ) : null}
             </>
           )}
         </View>

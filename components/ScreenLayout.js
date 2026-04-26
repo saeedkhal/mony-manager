@@ -7,7 +7,7 @@ import styles from "../styles/AppStyles";
  * Wraps screen content in a scrollable view with the app's content padding and dark background.
  * Use as the root wrapper for stack screens so content scrolls and layout matches the original app.
  */
-export default function ScreenLayout({ children, contentContainerStyle }) {
+export default function ScreenLayout({ children, contentContainerStyle, scrollViewProps }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.container, { flex: 1 }]}>
@@ -18,6 +18,7 @@ export default function ScreenLayout({ children, contentContainerStyle }) {
           contentContainerStyle,
         ]}
         showsVerticalScrollIndicator={true}
+        {...(scrollViewProps || {})}
       >
         {children}
       </ScrollView>
