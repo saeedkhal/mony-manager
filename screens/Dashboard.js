@@ -259,19 +259,19 @@ export default function Dashboard() {
             {fmt(totalExpenses)} {CURRENCY}
           </Text>
           <View style={styles.statSubGrid}>
-            <View style={[styles.statSubCard, { borderColor: "rgba(244,63,94,0.3)" }]}>
-              <Text style={styles.statSubLabel}>مصروفات عامة</Text>
-              <Text style={[styles.statSubValue, { color: "#f43f5e" }]}>
-                {fmt(totalGenExp)} {CURRENCY}
-              </Text>
-              <Text style={styles.statSubPct}>{formatPctShare(totalGenExp, totalExpenses)}</Text>
-            </View>
             <View style={[styles.statSubCard, { borderColor: "rgba(251,146,60,0.3)" }]}>
               <Text style={styles.statSubLabel}>مصروفات العملاء</Text>
               <Text style={[styles.statSubValue, { color: "#fb923c" }]}>
                 {fmt(totalClientExp)} {CURRENCY}
               </Text>
               <Text style={styles.statSubPct}>{formatPctShare(totalClientExp, totalExpenses)}</Text>
+            </View>
+            <View style={[styles.statSubCard, { borderColor: "rgba(244,63,94,0.3)" }]}>
+              <Text style={styles.statSubLabel}>مصروفات عامة</Text>
+              <Text style={[styles.statSubValue, { color: "#f43f5e" }]}>
+                {fmt(totalGenExp)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(totalGenExp, totalExpenses)}</Text>
             </View>
           </View>
         </View>
