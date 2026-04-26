@@ -50,6 +50,23 @@ export default StyleSheet.create({
   statIcon: { fontSize: 26 },
   statLabel: { color: "#94a3b8", fontSize: 12, marginTop: 6 },
   statValue: { fontSize: 22, fontWeight: "800", marginTop: 4 },
+  /** Home dashboard composite stat cards (total + two sub-rows). */
+  statCardTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statCardMainTitle: { color: "#e2e8f0", fontSize: 14, fontWeight: "700", flex: 1 },
+  statTotalCaption: { color: "#64748b", fontSize: 11, fontWeight: "600", marginTop: 12 },
+  statSubGrid: { flexDirection: "row", gap: 10, marginTop: 10 },
+  statSubCard: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: "rgba(0,0,0,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  statSubLabel: { color: "#94a3b8", fontSize: 11, fontWeight: "600" },
+  statSubValue: { fontSize: 15, fontWeight: "800", marginTop: 4 },
+  statSubPct: { fontSize: 11, fontWeight: "600", color: "#64748b", marginTop: 3 },
   card: {
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,

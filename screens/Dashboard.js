@@ -21,6 +21,15 @@ const BAR_CHART_X_LABEL_PULL_UP_RATIO = 0.1;
 
 const barChartCardStyle = [styles.chart, { paddingRight: BAR_CHART_Y_AXIS_GUTTER, marginTop: 8, marginBottom: 0 }];
 
+/** Share of `total` (e.g. sub-line vs card total). Arabic numerals, one decimal when needed. */
+function formatPctShare(part, total) {
+  const p = Number(part) || 0;
+  const t = Number(total) || 0;
+  if (t === 0) return "—";
+  const pct = (100 * p) / t;
+  return `${pct.toLocaleString("ar-EG", { maximumFractionDigits: 1, minimumFractionDigits: 0 })}٪`;
+}
+
 /** RN `Text` shapes Arabic correctly; SVG labels in chart-kit do not — use below charts. */
 function ChartXAxisLabels({ labels, width, chartHeight, yAxisGutter = BAR_CHART_Y_AXIS_GUTTER, barPercentage = 1 }) {
   const n = labels?.length ?? 0;
@@ -191,33 +200,113 @@ export default function Dashboard() {
     ],
   };
 
-  const stats = [
-    {
-      label: "صافي الربح",
-      val: netProfit,
-      icon: "💰",
-      color: netProfit >= 0 ? "#10b981" : "#f43f5e",
-      bg: "rgba(16,185,129,0.08)",
-    },
-    { label: "إجمالي الدخل", val: totalIncome, icon: "📈", color: "#818cf8", bg: "rgba(129,140,248,0.08)" },
-    { label: "دخل عام", val: totalGenIncome, icon: "💵", color: "#10b981", bg: "rgba(16,185,129,0.08)" },
-    { label: "مصروفات العملاء", val: totalClientExp, icon: "🔨", color: "#fb923c", bg: "rgba(251,146,60,0.08)" },
-    { label: "مصروفات عامة", val: totalGenExp, icon: "🏢", color: "#f43f5e", bg: "rgba(244,63,94,0.08)" },
-  ];
+  const totalExpenses = totalClientExp + totalGenExp;
+  const totalSales = totalIncome + totalGenIncome;
+  const clientNetProfit = totalIncome - totalClientExp;
+  const generalNetProfit = totalGenIncome - totalGenExp;
 
   return (
     <ScreenLayout>
       <View style={styles.dashboard}>
       <View style={styles.statsGrid}>
-        {stats.map((c) => (
-          <View key={c.label} style={[styles.statCard, { backgroundColor: c.bg, borderColor: c.color + "30" }]}>
-            <Text style={styles.statIcon}>{c.icon}</Text>
-            <Text style={styles.statLabel}>{c.label}</Text>
-            <Text style={[styles.statValue, { color: c.color }]}>
-              {fmt(c.val)} {CURRENCY}
-            </Text>
+        <View
+          style={[
+            styles.statCard,
+            {
+              backgroundColor: netProfit >= 0 ? "rgba(16,185,129,0.08)" : "rgba(244,63,94,0.08)",
+              borderColor: (netProfit >= 0 ? "#10b981" : "#f43f5e") + "35",
+            },
+          ]}
+        >
+          <View style={styles.statCardTitleRow}>
+            <Text style={styles.statIcon}>💰</Text>
+            <Text style={styles.statCardMainTitle}>صافي الربح</Text>
           </View>
-        ))}
+          <Text style={styles.statTotalCaption}>الإجمالي</Text>
+          <Text style={[styles.statValue, { color: netProfit >= 0 ? "#10b981" : "#f43f5e" }]}>
+            {fmt(netProfit)} {CURRENCY}
+          </Text>
+          <View style={styles.statSubGrid}>
+            <View style={[styles.statSubCard, { borderColor: "rgba(129,140,248,0.25)" }]}>
+              <Text style={styles.statSubLabel}>صافي من العملاء</Text>
+              <Text style={[styles.statSubValue, { color: clientNetProfit >= 0 ? "#10b981" : "#f43f5e" }]}>
+                {fmt(clientNetProfit)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(clientNetProfit, netProfit)}</Text>
+            </View>
+            <View style={[styles.statSubCard, { borderColor: "rgba(16,185,129,0.25)" }]}>
+              <Text style={styles.statSubLabel}>صافي من الدخل العام</Text>
+              <Text style={[styles.statSubValue, { color: generalNetProfit >= 0 ? "#10b981" : "#f43f5e" }]}>
+                {fmt(generalNetProfit)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(generalNetProfit, netProfit)}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.statCard,
+            { backgroundColor: "rgba(244,63,94,0.06)", borderColor: "rgba(251,146,60,0.28)" },
+          ]}
+        >
+          <View style={styles.statCardTitleRow}>
+            <Text style={styles.statIcon}>📉</Text>
+            <Text style={styles.statCardMainTitle}>المصروفات</Text>
+          </View>
+          <Text style={styles.statTotalCaption}>إجمالي المصروفات</Text>
+          <Text style={[styles.statValue, { color: "#fb923c" }]}>
+            {fmt(totalExpenses)} {CURRENCY}
+          </Text>
+          <View style={styles.statSubGrid}>
+            <View style={[styles.statSubCard, { borderColor: "rgba(244,63,94,0.3)" }]}>
+              <Text style={styles.statSubLabel}>مصروفات عامة</Text>
+              <Text style={[styles.statSubValue, { color: "#f43f5e" }]}>
+                {fmt(totalGenExp)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(totalGenExp, totalExpenses)}</Text>
+            </View>
+            <View style={[styles.statSubCard, { borderColor: "rgba(251,146,60,0.3)" }]}>
+              <Text style={styles.statSubLabel}>مصروفات العملاء</Text>
+              <Text style={[styles.statSubValue, { color: "#fb923c" }]}>
+                {fmt(totalClientExp)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(totalClientExp, totalExpenses)}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.statCard,
+            { backgroundColor: "rgba(129,140,248,0.08)", borderColor: "rgba(129,140,248,0.28)" },
+          ]}
+        >
+          <View style={styles.statCardTitleRow}>
+            <Text style={styles.statIcon}>📈</Text>
+            <Text style={styles.statCardMainTitle}>إجمالي المبيعات</Text>
+          </View>
+          <Text style={styles.statTotalCaption}>الإجمالي</Text>
+          <Text style={[styles.statValue, { color: "#818cf8" }]}>
+            {fmt(totalSales)} {CURRENCY}
+          </Text>
+          <View style={styles.statSubGrid}>
+            <View style={[styles.statSubCard, { borderColor: "rgba(129,140,248,0.28)" }]}>
+              <Text style={styles.statSubLabel}>دخل العملاء</Text>
+              <Text style={[styles.statSubValue, { color: "#a5b4fc" }]}>
+                {fmt(totalIncome)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(totalIncome, totalSales)}</Text>
+            </View>
+            <View style={[styles.statSubCard, { borderColor: "rgba(16,185,129,0.28)" }]}>
+              <Text style={styles.statSubLabel}>دخل عام</Text>
+              <Text style={[styles.statSubValue, { color: "#34d399" }]}>
+                {fmt(totalGenIncome)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(totalGenIncome, totalSales)}</Text>
+            </View>
+          </View>
+        </View>
       </View>
 
       {monthlyData.length > 0 && (
