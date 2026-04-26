@@ -11,6 +11,7 @@ import FormTextInput from "./FormTextInput";
  * @param {(ymd: string) => void} onChangeValue
  * @param {boolean} [active] - when false, closes any open Android picker (e.g. modal hidden)
  * @param {string} [error] - validation message shown below the field
+ * @param {boolean} [compact] - tighter spacing for inline / filter rows
  */
 export default function FormDateField({
   styles: S,
@@ -19,6 +20,7 @@ export default function FormDateField({
   onChangeValue,
   active = true,
   error,
+  compact = false,
 }) {
   const [showPicker, setShowPicker] = useState(false);
 
@@ -44,8 +46,8 @@ export default function FormDateField({
   };
 
   return (
-    <View style={S.inputGroup}>
-      <Text style={S.inputLabel}>{label}</Text>
+    <View style={[S.inputGroup, compact ? { marginBottom: 4 } : null]}>
+      <Text style={[S.inputLabel, compact ? { fontSize: 11, marginBottom: 4 } : null]}>{label}</Text>
       {Platform.OS === "android" ? (
         <>
           <TouchableOpacity
@@ -53,7 +55,7 @@ export default function FormDateField({
             activeOpacity={0.75}
             onPress={() => setShowPicker(true)}
           >
-            <Text style={{ color: value ? "#f1f5f9" : "#64748b", fontSize: 15 }}>
+            <Text style={{ color: value ? "#f1f5f9" : "#64748b", fontSize: compact ? 13 : 15 }}>
               {value || "اختر التاريخ"}
             </Text>
           </TouchableOpacity>

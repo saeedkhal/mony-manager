@@ -693,6 +693,156 @@ export async function getGeneralIncomeTotalAmount(fiscalYearId) {
   }
 }
 
+/** @param {string|null|undefined} d */
+function _ymdExpenseDate(d) {
+  if (d == null) return null;
+  const s = String(d).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return s;
+}
+
+/**
+ * Paginated general-ledger expense rows (same filter as General screen: not income).
+ * @param {string|null|undefined} catFilter Exact category label; omit or null for all categories.
+ * @param {string|null|undefined} dateFrom Inclusive YYYY-MM-DD.
+ * @param {string|null|undefined} dateTo Inclusive YYYY-MM-DD.
+ * @returns {Promise<{ txs: Array<object>, hasMore: boolean }>}
+ */
+export async function getGeneralExpenseTxsPage(
+  fiscalYearId,
+  limit = GENERAL_INCOME_PAGE_DEFAULT,
+  offset = 0,
+  catFilter = null,
+  dateFrom = null,
+  dateTo = null
+) {
+  const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || GENERAL_INCOME_PAGE_DEFAULT));
+  const off = Math.max(0, Math.floor(Number(offset)) || 0);
+  const take = lim + 1;
+  if (fiscalYearId == null || fiscalYearId === "") {
+    return { txs: [], hasMore: false };
+  }
+  const fy = Number(fiscalYearId);
+  const expenseClause = "IFNULL(tx_kind, 'expense') != 'income'";
+  const cat =
+    catFilter != null && String(catFilter).trim() !== "" ? String(catFilter).trim() : null;
+  const df = _ymdExpenseDate(dateFrom);
+  const dt = _ymdExpenseDate(dateTo);
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let list = (state?.generalTxs || []).map((t) => ({
+        ...t,
+        txKind: t.txKind === "income" ? "income" : "expense",
+      }));
+      list = list.filter((t) => Number(t.fiscalYearId) === fy && t.txKind !== "income");
+      if (cat != null) {
+        list = list.filter((t) => String(t.cat || "") === cat);
+      }
+      if (df != null) {
+        list = list.filter((t) => String(t.date || "") >= df);
+      }
+      if (dt != null) {
+        list = list.filter((t) => String(t.date || "") <= dt);
+      }
+      list.sort((a, b) => {
+        const c = String(b.date || "").localeCompare(String(a.date || ""));
+        if (c !== 0) return c;
+        return Number(b.id) - Number(a.id);
+      });
+      const slice = list.slice(off, off + take);
+      const hasMore = slice.length > lim;
+      const rows = hasMore ? slice.slice(0, lim) : slice;
+      return { txs: rows, hasMore };
+    }
+    return await runDb(async (database) => {
+      const whereParts = [`fiscal_year_id = ?`, expenseClause];
+      const params = [fy];
+      if (cat != null) {
+        whereParts.push("cat = ?");
+        params.push(cat);
+      }
+      if (df != null) {
+        whereParts.push("date >= ?");
+        params.push(df);
+      }
+      if (dt != null) {
+        whereParts.push("date <= ?");
+        params.push(dt);
+      }
+      const whereSql = whereParts.join(" AND ");
+      const sql = `SELECT id, amount, cat, note, date, fiscal_year_id, tx_kind FROM general WHERE ${whereSql} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`;
+      params.push(take, off);
+      const rows = await database.getAllAsync(sql, ...params);
+      const hasMore = rows.length > lim;
+      const pageRows = hasMore ? rows.slice(0, lim) : rows;
+      return { txs: pageRows.map((r) => mapGeneralRow(r)), hasMore };
+    });
+  } catch (e) {
+    console.warn("DB getGeneralExpenseTxsPage error:", e?.message || e);
+    clearDbOnError(e);
+    return { txs: [], hasMore: false };
+  }
+}
+
+/**
+ * Per-category sum of general expenses for the fiscal year (stats cards).
+ * @param {{ dateFrom?: string|null, dateTo?: string|null }} [range] Optional inclusive YYYY-MM-DD bounds.
+ */
+export async function getGeneralExpenseCategoryTotals(fiscalYearId, range = null) {
+  if (fiscalYearId == null || fiscalYearId === "") return {};
+  const fy = Number(fiscalYearId);
+  const expenseClause = "IFNULL(tx_kind, 'expense') != 'income'";
+  const df = range != null ? _ymdExpenseDate(range.dateFrom) : null;
+  const dt = range != null ? _ymdExpenseDate(range.dateTo) : null;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const list = (state?.generalTxs || []).map((t) => ({
+        ...t,
+        txKind: t.txKind === "income" ? "income" : "expense",
+      }));
+      const out = {};
+      for (const t of list) {
+        if (Number(t.fiscalYearId) !== fy || t.txKind === "income") continue;
+        const d = String(t.date || "");
+        if (df != null && d < df) continue;
+        if (dt != null && d > dt) continue;
+        const c = t.cat != null ? String(t.cat) : "";
+        out[c] = (out[c] || 0) + (Number(t.amount) || 0);
+      }
+      return out;
+    }
+    return await runDb(async (database) => {
+      const whereParts = [`fiscal_year_id = ?`, expenseClause];
+      const params = [fy];
+      if (df != null) {
+        whereParts.push("date >= ?");
+        params.push(df);
+      }
+      if (dt != null) {
+        whereParts.push("date <= ?");
+        params.push(dt);
+      }
+      const whereSql = whereParts.join(" AND ");
+      const rows = await database.getAllAsync(
+        `SELECT cat, COALESCE(SUM(amount), 0) AS s FROM general WHERE ${whereSql} GROUP BY cat`,
+        ...params
+      );
+      const out = {};
+      for (const r of rows || []) {
+        const c = r.cat != null ? String(r.cat) : "";
+        out[c] = Number(r.s) || 0;
+      }
+      return out;
+    });
+  } catch (e) {
+    console.warn("DB getGeneralExpenseCategoryTotals error:", e?.message || e);
+    clearDbOnError(e);
+    return {};
+  }
+}
+
 /** Get all workers. Returns [] on error. On web reads from AsyncStorage. */
 export async function getWorkers() {
   try {
