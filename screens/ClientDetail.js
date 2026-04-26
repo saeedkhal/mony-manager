@@ -103,6 +103,13 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     } catch (_) {}
   };
 
+  const handleDeleteClientTx = async (cid, tid) => {
+    try {
+      await deleteClientTx(cid, tid);
+      await refetchClientScreen();
+    } catch (_) {}
+  };
+
   const toggleStatus = async (cid) => {
     const c = await getClientWithTxs(cid);
     if (!c) return;
@@ -153,11 +160,14 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     if (form.workerId) tx.workerId = form.workerId;
     if (form.supplierId) tx.supplierId = form.supplierId;
     let updatedClient;
-    if (form.editTxId) {
-      tx.id = form.editTxId;
+    if (form.editTxId != null && form.editTxId !== "") {
+      const editId = form.editTxId;
       updatedClient = {
         ...c,
-        txs: (c.txs || []).map((t) => (t.id === form.editTxId ? tx : t)),
+        txs: (c.txs || []).map((t) => {
+          if (String(t.id) !== String(editId)) return t;
+          return { ...tx, id: t.id };
+        }),
       };
     } else {
       tx.id = Date.now();
@@ -325,7 +335,10 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                     >
                       <Text style={styles.txEditBtnText}>تعديل</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.txDeleteBtn} onPress={() => deleteClientTx(client.id, tx.id)}>
+                    <TouchableOpacity
+                      style={styles.txDeleteBtn}
+                      onPress={() => handleDeleteClientTx(client.id, tx.id)}
+                    >
                       <Text style={styles.txDeleteBtnText}>حذف</Text>
                     </TouchableOpacity>
                   </View>
