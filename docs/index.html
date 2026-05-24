@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="سياسة الخصوصية لتطبيق مول عمولة — إدارة مالية محلية مع نسخ احتياطي اختياري على Google Drive." />
+  <title>سياسة الخصوصية — مول عمولة</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #818cf8;
+      --border: rgba(129, 140, 248, 0.25);
+      --summary-bg: rgba(99, 102, 241, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.75;
+      font-size: 16px;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      font-size: 1.65rem;
+      margin: 0 0 8px;
+      color: #f1f5f9;
+    }
+    .meta { color: var(--muted); font-size: 0.9rem; }
+    .summary {
+      background: var(--summary-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 28px;
+    }
+    .summary strong { color: var(--accent); }
+    h2 {
+      font-size: 1.2rem;
+      color: var(--accent);
+      margin: 28px 0 12px;
+      padding-top: 8px;
+    }
+    h3 { font-size: 1.05rem; margin: 18px 0 8px; color: #c4b5fd; }
+    p, li { color: var(--text); }
+    ul { padding-right: 1.25rem; margin: 8px 0 16px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .en {
+      direction: ltr;
+      text-align: left;
+      margin-top: 40px;
+      padding-top: 32px;
+      border-top: 2px solid var(--border);
+    }
+    .en h1, .en h2 { text-align: left; }
+    .en ul { padding-left: 1.25rem; padding-right: 0; }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-top: 8px;
+    }
+    footer {
+      margin-top: 32px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --card: #fff;
+        --text: #1e293b;
+        --muted: #64748b;
+        --summary-bg: #eef2ff;
+      }
+      h1 { color: #0f172a; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>سياسة الخصوصية</h1>
+      <p class="meta">تطبيق <strong>مول عمولة</strong> · معرّف التطبيق: <code>com.saeedkhaled.omola</code></p>
+      <p class="meta">آخر تحديث: 24 مايو 2026</p>
+      <span class="badge">بياناتك على جهازك — النسخ الاحتياطي اختياري على حسابك في Google Drive</span>
+    </header>
+
+    <div class="summary card">
+      <p><strong>ملخص سريع:</strong> تطبيق «مول عمولة» أداة محاسبية محلية لإدارة العملاء والموردين والعمال والمصروفات والمخزن. لا نجمع بياناتك على خوادمنا. كل ما تدخله يُخزَّن على هاتفك. إذا فعّلت النسخ الاحتياطي، تُرفع نسخة من قاعدة البيانات إلى <strong>Google Drive الخاص بك</strong> فقط، بموافقتك وباستخدام حساب Google الخاص بك.</p>
+    </div>
+
+    <div class="card">
+      <h2>1. من نحن</h2>
+      <p>متحكّم البيانات (المطوّر): <strong>Saeed Khaled</strong> («نحن» / «المطوّر»).</p>
+      <p>للاستفسارات المتعلقة بالخصوصية: <a href="https://github.com/saeedkhal/mony-manager/issues">فتح طلب على GitHub</a> (أو راسلنا على البريد الذي تضعه في متجر التطبيقات).</p>
+      <p>ينطبق هذا المستند على تطبيق الهاتف المحمول <strong>مول عمولة</strong> (Android / iOS) والإصدار الويب إن وُجد.</p>
+
+      <h2>2. ما الذي يفعله التطبيق</h2>
+      <p>يساعدك التطبيق على تسجيل وإدارة:</p>
+      <ul>
+        <li>العملاء ومعاملاتهم (إيرادات ومصروفات)</li>
+        <li>العمال والموردين</li>
+        <li>المصروفات والإيرادات العامة والسنوات المالية</li>
+        <li>حسابات الأرباح واللوحة الرئيسية</li>
+        <li>المخزن (أصناف، مشتريات من موردين، صرف على عملاء)</li>
+        <li>إعدادات مثل سعر النصاب</li>
+      </ul>
+      <p>التطبيق <strong>ليس</strong> استشارة محاسبية أو ضريبية أو قانونية؛ هو أداة حفظ سجلات فقط.</p>
+
+      <h2>3. أين تُخزَّن بياناتك</h2>
+      <h3>3.1 التخزين المحلي (الوضع الافتراضي)</h3>
+      <p>تُحفظ بياناتك الأساسية <strong>محلياً على جهازك</strong> في قاعدة بيانات SQLite. على الويب قد يُستخدم تخزين المتصفح (AsyncStorage) بنفس الغرض.</p>
+      <p>لا نُشغّل قاعدة بيانات مركزية على خوادم المطوّر لاستخدام التطبيق اليومي. لا يلزم إنشاء حساب على موقعنا.</p>
+
+      <h3>3.2 النسخ الاحتياطي على Google Drive (اختياري)</h3>
+      <p>إذا اخترت «نسخ Google Drive»:</p>
+      <ul>
+        <li>تسجّل الدخول بحساب <strong>Google الخاص بك</strong> عبر OAuth.</li>
+        <li>يُرفع ملف نسخة احتياطية من قاعدة البيانات إلى مجلد على Drive باسم تقريبي: <em>مول عموله — نسخ احتياطية</em>.</li>
+        <li>تبقى الملفات تحت سيطرتك في حساب Google؛ <strong>لا نستضيف</strong> النسخ على خوادمنا.</li>
+        <li>قد يُحتفظ محلياً على الجهاز رمز وصول OAuth (في AsyncStorage) لإعادة الاتصال.</li>
+        <li>قد يحذف التطبيق تلقائياً النسخ الأقدم ويبقي آخر <strong>5</strong> نسخ في المجلد.</li>
+      </ul>
+      <p>استخدام Google يخضع أيضاً لـ <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">سياسة خصوصية Google</a>.</p>
+
+      <h2>4. أنواع البيانات</h2>
+      <p><strong>بيانات تدخلها أنت (محلية، وداخل النسخة الاحتياطية إن فعّلتها):</strong></p>
+      <ul>
+        <li>أسماء العملاء، المشاريع، الحالات، الملاحظات</li>
+        <li>مبالغ المعاملات، الفئات، التواريخ، الربط بالعمال/الموردين/المخزن</li>
+        <li>أسماء العمال والموردين وأرقام الهواتف (إن أدخلتها)</li>
+        <li>سجلات المصروفات العامة والسنوات المالية</li>
+        <li>بيانات المخزن: أصناف، كميات، تكاليف، حركات</li>
+        <li>إعدادات التطبيق (مثل سعر النصاب)</li>
+      </ul>
+      <p><strong>عند تفعيل Google Drive فقط:</strong></p>
+      <ul>
+        <li>معلومات حساب Google التي يوفّرها OAuth (مثل البريد/الملف الشخصي حسب إعدادات Google)</li>
+        <li>محتوى ملف النسخة الاحتياطية (يشمل كل البيانات المحلية أعلاه)</li>
+      </ul>
+
+      <h2>5. ما لا نجمعه</h2>
+      <ul>
+        <li>لا نبيع بياناتك لأطراف ثالثة</li>
+        <li>لا نستخدم إعلانات أو تتبع تحليلات (Analytics) موصوفة في التطبيق</li>
+        <li>لا نتتبع الموقع الجغرافي</li>
+        <li>لا نصل إلى جهات الاتصال أو الكاميرا أو الميكروفون لعمل التطبيق الأساسي</li>
+      </ul>
+
+      <h2>6. كيف نستخدم البيانات</h2>
+      <p>نستخدم البيانات فقط لتشغيل ميزات التطبيق على جهازك (عرض، حساب، تقارير) ولرفع النسخ الاحتياطية إلى Drive عند طلبك. لا نستخدمها للتسويق أو التنميط.</p>
+
+      <h2>7. المشاركة مع أطراف ثالثة</h2>
+      <ul>
+        <li><strong>Google</strong> — عند تفعيل النسخ الاحتياطي (OAuth وGoogle Drive API).</li>
+        <li><strong>متاجر التطبيقات / نظام التشغيل</strong> — وفق سياساتهم (مثل Google Play).</li>
+      </ul>
+      <p>لا نشارك بياناتك مع مطوّرين آخرين لأغراض تجارية.</p>
+
+      <h2>8. الأمان</h2>
+      <p>أمان البيانات المحلية يعتمد على أمان جهازك (قفل الشاشة، عدم مشاركة الهاتف). أمان النسخ على Drive يعتمد على أمان حساب Google. لا توجد طريقة نقل أو تخزين آمنة بنسبة 100%.</p>
+
+      <h2>9. مدة الاحتفاظ</h2>
+      <ul>
+        <li><strong>محلياً:</strong> حتى تحذف السجلات أو تُزيل التطبيق من الجهاز.</li>
+        <li><strong>على Drive:</strong> حسب إدارتك لحساب Google؛ التطبيق قد يحذف النسخ الزائدة عن آخر 5.</li>
+        <li><strong>رموز OAuth:</strong> على الجهاز حتى تسجّل الخروج أو تحذف بيانات التطبيق.</li>
+      </ul>
+
+      <h2>10. حقوقك وخياراتك</h2>
+      <ul>
+        <li>تعديل أو حذف السجلات من داخل التطبيق</li>
+        <li>إلغاء ربط Google من شاشة النسخ الاحتياطي</li>
+        <li>حذف ملفات النسخ من Google Drive مباشرة</li>
+        <li>إزالة التطبيق لحذف البيانات المحلية (حسب سلوك نظام التشغيل)</li>
+        <li>التواصل معنا عبر <a href="https://github.com/saeedkhal/mony-manager/issues">GitHub Issues</a> للأسئلة</li>
+      </ul>
+
+      <h2>11. الأطفال</h2>
+      <p>التطبيق موجّه لاستخدام تجاري/محاسبي للبالغين وليس موجهاً للأطفال دون 13 عاماً (أو 16 حيث ينطبق القانون المحلي).</p>
+
+      <h2>12. التحويلات الدولية</h2>
+      <p>إذا استخدمت Google Drive، قد تُعالج بياناتك ضمن بنية Google العالمية وفق سياساتها.</p>
+
+      <h2>13. التغييرات على هذه السياسة</h2>
+      <p>قد نحدّث هذه الصفحة. سيظهر تاريخ «آخر تحديث» في الأعلى. استمرارك في استخدام التطبيق بعد التحديث يعني قبولك للنسخة المحدّثة حيث يسمح القانون بذلك.</p>
+
+      <h2>14. ملخص لنموذج «سلامة البيانات» في Google Play</h2>
+      <ul>
+        <li><strong>يجمع:</strong> أسماء، معلومات مالية (مبالغ)، محتوى مستخدم (ملاحظات)، معرّفات داخل التطبيق — كلها يدخلها المستخدم.</li>
+        <li><strong>اختياري:</strong> حساب Google / ملفات على Drive عند تفعيل النسخ الاحتياطي.</li>
+        <li><strong>الغرض:</strong> وظائف التطبيق والنسخ الاحتياطي فقط.</li>
+        <li><strong>المشاركة:</strong> Google فقط عند النسخ الاحتياطي؛ لا بيع بيانات.</li>
+        <li><strong>التشفير:</strong> النقل إلى Google عبر HTTPS؛ التخزين المحلي على الجهاز.</li>
+      </ul>
+    </div>
+
+    <section class="en card" lang="en" dir="ltr">
+      <header>
+        <h1>Privacy Policy</h1>
+        <p class="meta"><strong>Mall Omola</strong> (مول عمولة) · Application ID: <code>com.saeedkhaled.omola</code></p>
+        <p class="meta">Last updated: May 24, 2026</p>
+      </header>
+
+      <div class="summary">
+        <p><strong>Quick summary:</strong> Mall Omola is a local-first business finance app. We do not collect your data on our servers. Everything you enter stays on your device. Optional backup uploads a database snapshot to <strong>your own Google Drive</strong>, with your consent and your Google account.</p>
+      </div>
+
+      <h2>1. Who we are</h2>
+      <p>Data controller / Developer: <strong>Saeed Khaled</strong>.</p>
+      <p>Privacy contact: <a href="https://github.com/saeedkhal/mony-manager/issues">GitHub Issues</a>.</p>
+
+      <h2>2. What the app does</h2>
+      <p>Records clients, workers, suppliers, general expenses, fiscal years, profit dashboard, warehouse/stock, and settings. It is a record-keeping tool, not professional tax or legal advice.</p>
+
+      <h2>3. Where data is stored</h2>
+      <p><strong>Local (default):</strong> SQLite on device (AsyncStorage on web). No developer-hosted database for normal use.</p>
+      <p><strong>Optional Google Drive backup:</strong> OAuth to your Google account; backup files in folder <em>مول عموله — نسخ احتياطية</em>; we do not host backups; up to 5 files retained. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>.</p>
+
+      <h2>4. Data we do not collect</h2>
+      <p>No ads, no analytics SDKs described in the app, no location tracking, no selling of personal data.</p>
+
+      <h2>5. Your choices</h2>
+      <p>Edit/delete in-app; disconnect Google; delete Drive files; uninstall to remove local data.</p>
+
+      <h2>6. Children</h2>
+      <p>Not directed at children under 13.</p>
+
+      <h2>7. Changes</h2>
+      <p>We may update this page; the date above will change.</p>
+    </section>
+
+    <footer>
+      <p>© 2026 مول عمولة · <a href="https://github.com/saeedkhal/mony-manager">mony-manager</a></p>
+      <p><a href="https://saeedkhal.github.io/mony-manager/">https://saeedkhal.github.io/mony-manager/</a></p>
+    </footer>
+  </div>
+</body>
+</html>
