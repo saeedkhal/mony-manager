@@ -11,7 +11,7 @@ import {
   upsertStockItem,
   deleteStockMovement,
 } from "../utils/db";
-import { CURRENCY, STOCK_UNITS, CLIENT_EXPENSE_CATS } from "../constants";
+import { CURRENCY, STOCK_UNITS } from "../constants";
 import { fmt } from "../utils/helpers";
 import { getStockUnitLabel } from "../utils/stockHelpers";
 import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils/formValidation";
@@ -170,7 +170,6 @@ export default function Warehouse() {
       stockModal: "item",
       itemName: "",
       itemUnit: STOCK_UNITS[0].id,
-      itemExpenseCat: CLIENT_EXPENSE_CATS[0],
     });
     setModal("stockItem");
   };
@@ -220,7 +219,7 @@ export default function Warehouse() {
       await upsertStockItem({
         name,
         unit: form.itemUnit || "count",
-        expenseCat: form.itemExpenseCat || "أخرى",
+        expenseCat: "أخرى",
       });
       await refetch();
       setModal(null);
@@ -276,24 +275,77 @@ export default function Warehouse() {
               <Text style={styles.emptyText}>لا توجد أصناف — أضف صنفاً أو سجّل شراء</Text>
             </View>
           ) : (
-            balances.map((b) => (
-              <View
-                key={b.item.id}
-                style={[
-                  styles.txItemStack,
-                  { borderColor: "rgba(99,102,241,0.25)", marginBottom: 8 },
-                ]}
-              >
-                <Text style={{ color: "#e2e8f0", fontWeight: "700", fontSize: 16 }}>{b.item.name}</Text>
-                <Text style={{ color: "#94a3b8", marginTop: 4 }}>
-                  الرصيد: {fmt(b.quantity, 2)} {getStockUnitLabel(b.item.unit)}
-                </Text>
-                <Text style={{ color: "#64748b", fontSize: 12, marginTop: 2 }}>
-                  متوسط التكلفة: {fmt(b.avgCost, 2)} {CURRENCY}/{getStockUnitLabel(b.item.unit)} — القيمة:{" "}
-                  {fmt(b.totalValue)} {CURRENCY}
-                </Text>
+            <View style={styles.stockTableCard}>
+              <View style={styles.stockTableHeader}>
+                <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                  <Text style={styles.stockTableHeaderText}>الصنف</Text>
+                </View>
+                <View style={[styles.stockTableCol, styles.stockTableColQty]}>
+                  <Text style={styles.stockTableHeaderText}>الرصيد</Text>
+                </View>
+                <View style={[styles.stockTableCol, styles.stockTableColUnit]}>
+                  <Text style={styles.stockTableHeaderText}>الوحدة</Text>
+                </View>
+                <View style={[styles.stockTableCol, styles.stockTableColCost]}>
+                  <Text style={styles.stockTableHeaderText}>سعر الوحدة</Text>
+                </View>
+                <View style={[styles.stockTableCol, styles.stockTableColValue]}>
+                  <Text style={styles.stockTableHeaderText}>القيمة</Text>
+                </View>
               </View>
-            ))
+              {balances.map((b, index) => {
+                const unitLabel = getStockUnitLabel(b.item.unit);
+                const isLast = index === balances.length - 1;
+                return (
+                  <View
+                    key={b.item.id}
+                    style={[
+                      styles.stockTableRow,
+                      index % 2 === 1 && styles.stockTableRowAlt,
+                      isLast && styles.stockTableRowLast,
+                    ]}
+                  >
+                    <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                      <Text style={styles.stockTableCellName} numberOfLines={2}>
+                        {b.item.name}
+                      </Text>
+                      {b.quantity <= 0 ? (
+                        <Text style={[styles.stockTableCellSub, { color: "#f59e0b" }]}>نفد الرصيد</Text>
+                      ) : null}
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColQty]}>
+                      <Text style={styles.stockTableCell}>{fmt(b.quantity)}</Text>
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColUnit]}>
+                      <Text style={styles.stockTableCellMuted} numberOfLines={1}>
+                        {unitLabel}
+                      </Text>
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColCost]}>
+                      <Text style={styles.stockTableCell}>{fmt(b.avgCost)}</Text>
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColValue]}>
+                      <Text style={[styles.stockTableCell, { color: "#818cf8" }]}>
+                        {fmt(b.totalValue)}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+              <View style={styles.stockTableFooter}>
+                <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                  <Text style={styles.stockTableFooterText}>الإجمالي ({balances.length} صنف)</Text>
+                </View>
+                <View style={[styles.stockTableCol, styles.stockTableColQty]} />
+                <View style={[styles.stockTableCol, styles.stockTableColUnit]} />
+                <View style={[styles.stockTableCol, styles.stockTableColCost]} />
+                <View style={[styles.stockTableCol, styles.stockTableColValue]}>
+                  <Text style={[styles.stockTableCell, { color: "#818cf8", fontWeight: "800" }]}>
+                    {fmt(totalInventoryValue)} {CURRENCY}
+                  </Text>
+                </View>
+              </View>
+            </View>
           )}
 
           <Text style={[styles.cardTitle, { fontSize: 16, marginTop: 16, marginBottom: 8 }]}>
@@ -573,24 +625,6 @@ export default function Warehouse() {
               >
                 <Text style={[styles.optionBtnText, form.itemUnit === u.id && styles.optionBtnTextActive]}>
                   {u.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>فئة مصروف العميل</Text>
-          <View style={styles.optionsGrid}>
-            {CLIENT_EXPENSE_CATS.map((cat) => (
-              <TouchableOpacity
-                key={cat}
-                style={[styles.optionBtn, form.itemExpenseCat === cat && styles.optionBtnActive]}
-                onPress={() => setForm((p) => ({ ...p, itemExpenseCat: cat }))}
-              >
-                <Text
-                  style={[styles.optionBtnText, form.itemExpenseCat === cat && styles.optionBtnTextActive]}
-                >
-                  {cat}
                 </Text>
               </TouchableOpacity>
             ))}
