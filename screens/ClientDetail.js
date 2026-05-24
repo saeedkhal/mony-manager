@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import { useApp } from "../context/AppContext";
 import {
   getClientWithTxs,
   getWorkers,
   getSuppliers,
+  getStockItemsWithBalance,
+  recordStockIssue,
   upsertClient,
   deleteClient as dbDeleteClient,
 } from "../utils/db";
 import { CURRENCY, STATUS_LABELS, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
+import { getStockUnitLabel } from "../utils/stockHelpers";
 import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils/formValidation";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
@@ -18,12 +21,22 @@ import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
 
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
-  const { activeFiscalYearLabel, deleteClientTx, setForm, setModal, modal, form } = useApp();
+  const { activeFiscalYearId, activeFiscalYearLabel, deleteClientTx, setForm, setModal, modal, form } =
+    useApp();
 
   const [formErrors, setFormErrors] = useState({});
+  const [stockBalances, setStockBalances] = useState([]);
+  const [stockPreviewAmount, setStockPreviewAmount] = useState(null);
+  const [showStockItemPicker, setShowStockItemPicker] = useState(false);
 
-  const openClientTx = (cid, txType, editTx = null) => {
+  const openClientTx = async (cid, txType, editTx = null) => {
     setFormErrors({});
+    setStockPreviewAmount(null);
+    setShowStockItemPicker(false);
+    if (editTx?.stockMovementId != null) {
+      return;
+    }
+    const today = new Date().toISOString().split("T")[0];
     if (editTx) {
       setForm({
         clientId: cid,
@@ -35,13 +48,30 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         date: editTx.date,
         workerId: editTx.workerId,
         supplierId: editTx.supplierId,
+        expenseMode: "manual",
+      });
+    } else if (txType === "expense") {
+      let stock = stockBalances;
+      try {
+        stock = await getStockItemsWithBalance();
+        setStockBalances(stock || []);
+      } catch (_) {}
+      const inStock = (stock || []).filter((b) => b.quantity > 0);
+      setForm({
+        clientId: cid,
+        txType,
+        expenseMode: "manual",
+        cat: CLIENT_EXPENSE_CATS[0],
+        stockItemId: inStock[0]?.item?.id,
+        stockQuantity: "",
+        date: today,
       });
     } else {
       setForm({
         clientId: cid,
         txType,
-        cat: txType === "income" ? "مقدم" : CLIENT_EXPENSE_CATS[0],
-        date: new Date().toISOString().split("T")[0],
+        cat: "مقدم",
+        date: today,
       });
     }
     setModal("addClientTx");
@@ -70,12 +100,14 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       getClientWithTxs(selectedClient),
       getWorkers(),
       getSuppliers(),
+      getStockItemsWithBalance(),
     ])
-      .then(([c, w, s]) => {
+      .then(([c, w, s, stock]) => {
         if (!cancelled) {
           setClient(c || null);
           setWorkers(w || []);
           setSuppliers(s || []);
+          setStockBalances(stock || []);
         }
       })
       .catch(() => {
@@ -92,14 +124,16 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const refetchClientScreen = async () => {
     if (!selectedClient) return;
     try {
-      const [c, w, s] = await Promise.all([
+      const [c, w, s, stock] = await Promise.all([
         getClientWithTxs(selectedClient),
         getWorkers(),
         getSuppliers(),
+        getStockItemsWithBalance(),
       ]);
       setClient(c || null);
       setWorkers(w || []);
       setSuppliers(s || []);
+      setStockBalances(stock || []);
     } catch (_) {}
   };
 
@@ -130,13 +164,80 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
 
   const getWorkerName = (id) => workers.find((w) => w.id === id)?.name || "غير محدد";
   const getSupplierName = (id) => suppliers.find((s) => s.id === id)?.name || "غير محدد";
+  const getStockItemName = (id) => stockBalances.find((b) => b.item.id === id)?.item?.name || "";
+
+  const stockInStock = useMemo(
+    () => stockBalances.filter((b) => b.quantity > 0),
+    [stockBalances]
+  );
+
+  const selectedStockItemLabel = useMemo(() => {
+    if (!form.stockItemId) return "-- اختر الصنف --";
+    const b = stockInStock.find((x) => x.item.id === form.stockItemId);
+    if (!b) return "-- اختر الصنف --";
+    return `${b.item.name} — متبقي ${fmt(b.quantity)} ${getStockUnitLabel(b.item.unit)}`;
+  }, [form.stockItemId, stockInStock]);
+
+  const isWarehouseExpense =
+    form.txType === "expense" && form.expenseMode === "warehouse" && !form.editTxId;
+
+  useEffect(() => {
+    if (modal !== "addClientTx" || !isWarehouseExpense || !form.stockItemId || !form.stockQuantity) {
+      setStockPreviewAmount(null);
+      return;
+    }
+    const qty = parsePositiveAmount(form.stockQuantity);
+    if (qty == null) {
+      setStockPreviewAmount(null);
+      return;
+    }
+    const b = stockBalances.find((x) => Number(x.item.id) === Number(form.stockItemId));
+    if (!b || qty > b.quantity) {
+      setStockPreviewAmount(null);
+      return;
+    }
+    setStockPreviewAmount(qty * (b.avgCost || 0));
+  }, [modal, isWarehouseExpense, form.stockItemId, form.stockQuantity, stockBalances]);
 
   const saveClientTx = async () => {
     const err = {};
-    const num = parsePositiveAmount(form.amount);
-    if (num == null) err.amount = FORM_MSG.amount;
     const date = trimmed(form.date) || new Date().toISOString().split("T")[0];
     if (!isValidDateYmd(date)) err.date = FORM_MSG.date;
+
+    if (isWarehouseExpense) {
+      const qty = parsePositiveAmount(form.stockQuantity);
+      if (qty == null) err.stockQuantity = FORM_MSG.amount;
+      if (!form.stockItemId) err.stockItemId = "اختر الصنف";
+      const b = stockBalances.find((x) => Number(x.item.id) === Number(form.stockItemId));
+      if (b && qty != null && qty > b.quantity) err.stockQuantity = "الكمية أكبر من الرصيد";
+      if (Object.keys(err).length) {
+        setFormErrors(err);
+        return;
+      }
+      setFormErrors({});
+      try {
+        await recordStockIssue({
+          itemId: form.stockItemId,
+          clientId: form.clientId,
+          quantity: qty,
+          date,
+          note: form.note || "",
+          fiscalYearId: activeFiscalYearId,
+        });
+        await refetchClientScreen();
+        setModal(null);
+        setForm({});
+        setStockPreviewAmount(null);
+      } catch (e) {
+        if (e?.message === "INSUFFICIENT_STOCK") err.stockQuantity = "رصيد غير كافٍ";
+        else err.submit = "تعذر الصرف من المخزن";
+        setFormErrors(err);
+      }
+      return;
+    }
+
+    const num = parsePositiveAmount(form.amount);
+    if (num == null) err.amount = FORM_MSG.amount;
     if (form.txType === "expense" && form.cat === "مصنعية" && workers.length > 0 && !form.workerId) {
       err.workerId = FORM_MSG.worker;
     }
@@ -316,6 +417,13 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                       <Text style={[styles.tagText, { color: "#a78bfa" }]}>🏭 {getSupplierName(tx.supplierId)}</Text>
                     </View>
                   )}
+                  {tx.stockItemId != null && tx.stockQuantity != null && (
+                    <View style={[styles.tag, { backgroundColor: "rgba(99,102,241,0.2)" }]}>
+                      <Text style={[styles.tagText, { color: "#818cf8" }]}>
+                        📦 {getStockItemName(tx.stockItemId)} — {tx.stockQuantity}
+                      </Text>
+                    </View>
+                  )}
                   {tx.note ? <Text style={styles.txNote}>{tx.note}</Text> : null}
                 </View>
                 <View style={styles.txItemActionsRow}>
@@ -329,12 +437,14 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                     {fmt(tx.amount)} {CURRENCY}
                   </Text>
                   <View style={styles.txItemButtons}>
-                    <TouchableOpacity
-                      style={styles.txEditBtn}
-                      onPress={() => openClientTx(client.id, tx.type, tx)}
-                    >
-                      <Text style={styles.txEditBtnText}>تعديل</Text>
-                    </TouchableOpacity>
+                    {tx.stockMovementId == null && (
+                      <TouchableOpacity
+                        style={styles.txEditBtn}
+                        onPress={() => openClientTx(client.id, tx.type, tx)}
+                      >
+                        <Text style={styles.txEditBtnText}>تعديل</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={styles.txDeleteBtn}
                       onPress={() => handleDeleteClientTx(client.id, tx.id)}
@@ -355,6 +465,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       onClose={() => {
         setFormErrors({});
         setModal(null);
+        setStockPreviewAmount(null);
+        setShowStockItemPicker(false);
       }}
     >
       <Text style={styles.modalTitle}>
@@ -367,6 +479,174 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       <Text style={styles.modalSubtitle}>
         العميل: {txModalClientName} — {activeFiscalYearLabel}
       </Text>
+
+      {form.txType === "expense" && !form.editTxId && (
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>طريقة تسجيل المصروف</Text>
+          <View style={[styles.clientDetailActions, { marginBottom: 4 }]}>
+            <TouchableOpacity
+              style={[
+                styles.btn,
+                { flex: 1, backgroundColor: form.expenseMode !== "warehouse" ? "#f43f5e" : "rgba(148,163,184,0.2)" },
+              ]}
+              onPress={() => {
+                setFormErrors({});
+                setStockPreviewAmount(null);
+                setShowStockItemPicker(false);
+                setForm((p) => ({
+                  ...p,
+                  expenseMode: "manual",
+                  stockItemId: undefined,
+                  stockQuantity: "",
+                }));
+              }}
+            >
+              <Text style={styles.btnText}>يدوي (مبلغ وبند)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.btn,
+                {
+                  flex: 1,
+                  backgroundColor:
+                    form.expenseMode === "warehouse" ? "#6366f1" : "rgba(148,163,184,0.2)",
+                  opacity: stockInStock.length === 0 ? 0.45 : 1,
+                },
+              ]}
+              disabled={stockInStock.length === 0}
+              onPress={() => {
+                setFormErrors({});
+                setShowStockItemPicker(false);
+                setForm((p) => ({
+                  ...p,
+                  expenseMode: "warehouse",
+                  amount: undefined,
+                  stockItemId: stockInStock[0]?.item?.id,
+                  stockQuantity: "",
+                  workerId: undefined,
+                  supplierId: undefined,
+                }));
+              }}
+            >
+              <Text style={styles.btnText}>من المخزن 📦</Text>
+            </TouchableOpacity>
+          </View>
+          {stockInStock.length === 0 && (
+            <Text style={{ color: "#64748b", fontSize: 12, marginBottom: 8 }}>
+              لا يوجد رصيد في المخزن — سجّل شراء من تبويب «المخزن» أو استخدم المصروف اليدوي.
+            </Text>
+          )}
+        </View>
+      )}
+
+      {isWarehouseExpense ? (
+        <>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>الصنف من المخزن</Text>
+            {stockInStock.length === 0 ? (
+              <Text style={{ color: "#64748b", fontSize: 12 }}>
+                لا يوجد رصيد في المخزن — سجّل شراء من تبويب «المخزن» أولاً.
+              </Text>
+            ) : (
+              <View style={styles.pickerContainer}>
+                <TouchableOpacity
+                  style={[styles.pickerBtn, formErrors.stockItemId ? styles.inputError : null]}
+                  onPress={() => setShowStockItemPicker((p) => !p)}
+                >
+                  <Text
+                    style={[styles.pickerBtnText, form.stockItemId && { color: "#818cf8" }]}
+                    numberOfLines={1}
+                  >
+                    {selectedStockItemLabel}
+                  </Text>
+                  <Text style={styles.pickerBtnArrow}>▾</Text>
+                </TouchableOpacity>
+                {showStockItemPicker && (
+                  <View style={styles.pickerDropdown}>
+                    <ScrollView style={styles.pickerList} nestedScrollEnabled keyboardShouldPersistTaps="always">
+                      <TouchableOpacity
+                        style={[styles.pickerItem, !form.stockItemId && styles.pickerItemActive]}
+                        onPress={() => {
+                          setFormErrors((e) => ({ ...e, stockItemId: undefined }));
+                          setForm((p) => ({ ...p, stockItemId: null, stockQuantity: "" }));
+                          setShowStockItemPicker(false);
+                          setStockPreviewAmount(null);
+                        }}
+                      >
+                        <Text
+                          style={[styles.pickerItemText, !form.stockItemId && styles.pickerItemTextActive]}
+                        >
+                          -- اختر الصنف --
+                        </Text>
+                      </TouchableOpacity>
+                      {stockInStock.map((b) => (
+                        <TouchableOpacity
+                          key={b.item.id}
+                          style={[
+                            styles.pickerItem,
+                            form.stockItemId === b.item.id && styles.pickerItemActive,
+                          ]}
+                          onPress={() => {
+                            setFormErrors((e) => ({ ...e, stockItemId: undefined, stockQuantity: undefined }));
+                            setForm((p) => ({ ...p, stockItemId: b.item.id, stockQuantity: "" }));
+                            setShowStockItemPicker(false);
+                            setStockPreviewAmount(null);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.pickerItemText,
+                              form.stockItemId === b.item.id && styles.pickerItemTextActive,
+                            ]}
+                          >
+                            {b.item.name} — متبقي {fmt(b.quantity)} {getStockUnitLabel(b.item.unit)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            )}
+            {formErrors.stockItemId ? (
+              <Text style={styles.fieldErrorText}>{formErrors.stockItemId}</Text>
+            ) : null}
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>
+              الكمية
+              {form.stockItemId
+                ? ` (${getStockUnitLabel(
+                    stockBalances.find((b) => b.item.id === form.stockItemId)?.item?.unit
+                  )})`
+                : ""}
+            </Text>
+            <FormTextInput
+              styles={styles}
+              placeholder="0"
+              placeholderTextColor="#64748b"
+              value={form.stockQuantity?.toString() || ""}
+              onChangeText={(text) => {
+                setFormErrors((e) => ({ ...e, stockQuantity: undefined }));
+                setForm((p) => ({ ...p, stockQuantity: text }));
+              }}
+              keyboardType="numeric"
+              error={formErrors.stockQuantity}
+            />
+          </View>
+          {stockPreviewAmount != null && (
+            <Text style={{ color: "#fb923c", textAlign: "center", marginBottom: 12 }}>
+              المبلغ على العميل (متوسط التكلفة): {fmt(stockPreviewAmount)} {CURRENCY}
+            </Text>
+          )}
+          {form.stockItemId && (
+            <Text style={{ color: "#64748b", fontSize: 12, marginBottom: 8, textAlign: "center" }}>
+              البند: {stockBalances.find((b) => b.item.id === form.stockItemId)?.item?.expenseCat || "—"}
+            </Text>
+          )}
+        </>
+      ) : (
+        <>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
         <FormTextInput
@@ -409,7 +689,9 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
           ))}
         </View>
       </View>
-      {form.txType === "expense" && form.cat === "مصنعية" && workers.length > 0 && (
+        </>
+      )}
+      {form.txType === "expense" && !isWarehouseExpense && form.cat === "مصنعية" && workers.length > 0 && (
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>👷 الصنايعي</Text>
           <View style={styles.optionsGrid}>
@@ -443,6 +725,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         </View>
       )}
       {form.txType === "expense" &&
+        !isWarehouseExpense &&
         (form.cat === "قماش" || form.cat === "خشب وكلف") &&
         suppliers.length > 0 && (
           <View style={styles.inputGroup}>
@@ -505,8 +788,15 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         ]}
         onPress={saveClientTx}
       >
-        <Text style={styles.btnText}>{form.editTxId ? "حفظ التعديلات ✓" : "حفظ ✓"}</Text>
+        <Text style={styles.btnText}>
+          {form.editTxId
+            ? "حفظ التعديلات ✓"
+            : isWarehouseExpense
+              ? "صرف من المخزن وحفظ ✓"
+              : "حفظ ✓"}
+        </Text>
       </TouchableOpacity>
+      {formErrors.submit ? <Text style={styles.fieldErrorText}>{formErrors.submit}</Text> : null}
     </CustomModal>
     </>
   );

@@ -1,5 +1,12 @@
 import { Platform } from "react-native";
 import { getCurrentFiscalYear } from "../utils/helpers";
+import { DEFAULT_STOCK_ITEMS } from "../constants";
+import {
+  computeStockBalance,
+  canIssueQuantity,
+  issueCostAmount,
+  getStockUnitLabel,
+} from "./stockHelpers";
 
 const IS_WEB = Platform.OS === "web";
 const DB_NAME = "mall_v4.db";
@@ -23,6 +30,8 @@ async function getWebState() {
         data.activeFiscalYearId != null ? Number(data.activeFiscalYearId) : null,
       customFYs: data.customFYs || [],
       nissabPrice: data.nissabPrice != null ? Number(data.nissabPrice) : 85000,
+      stockItems: data.stockItems || [],
+      stockMovements: data.stockMovements || [],
     };
   } catch (e) {
     return null;
@@ -195,6 +204,89 @@ async function initSchema(database) {
     );
   `);
   await migrateGeneralTxKind(database);
+  await migrateStockSchema(database);
+}
+
+async function migrateStockSchema(database) {
+  try {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS stock_items (
+        id INTEGER PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        expense_cat TEXT NOT NULL DEFAULT 'أخرى'
+      );
+      CREATE TABLE IF NOT EXISTS stock_movements (
+        id INTEGER PRIMARY KEY NOT NULL,
+        item_id INTEGER NOT NULL,
+        direction TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit_price REAL NOT NULL,
+        supplier_id INTEGER,
+        client_id INTEGER,
+        client_tx_id INTEGER,
+        note TEXT,
+        date TEXT NOT NULL,
+        fiscal_year_id INTEGER,
+        FOREIGN KEY (item_id) REFERENCES stock_items(id)
+      );
+    `);
+    const txCols = await database.getAllAsync("PRAGMA table_info(client_transactions)");
+    const txNames = new Set((txCols || []).map((c) => c.name));
+    if (!txNames.has("stock_item_id")) {
+      await database.execAsync("ALTER TABLE client_transactions ADD COLUMN stock_item_id INTEGER");
+    }
+    if (!txNames.has("stock_quantity")) {
+      await database.execAsync("ALTER TABLE client_transactions ADD COLUMN stock_quantity REAL");
+    }
+    if (!txNames.has("stock_movement_id")) {
+      await database.execAsync("ALTER TABLE client_transactions ADD COLUMN stock_movement_id INTEGER");
+    }
+    const countRow = await database.getFirstAsync("SELECT COUNT(*) AS c FROM stock_items");
+    if ((countRow?.c ?? 0) === 0) {
+      const now = Date.now();
+      for (let i = 0; i < DEFAULT_STOCK_ITEMS.length; i++) {
+        const it = DEFAULT_STOCK_ITEMS[i];
+        await database.runAsync(
+          "INSERT INTO stock_items (id, name, unit, expense_cat) VALUES (?, ?, ?, ?)",
+          now + i,
+          it.name,
+          it.unit,
+          it.expenseCat
+        );
+      }
+    }
+  } catch (e) {
+    console.warn("migrateStockSchema:", e?.message || e);
+  }
+}
+
+const CLIENT_TX_SELECT =
+  "id, client_id, type, amount, cat, note, date, worker_id, supplier_id, stock_item_id, stock_quantity, stock_movement_id";
+
+function mapStockItemRow(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    unit: r.unit,
+    expenseCat: r.expense_cat || "أخرى",
+  };
+}
+
+function mapStockMovementRow(r) {
+  return {
+    id: r.id,
+    itemId: r.item_id,
+    direction: r.direction === "out" ? "out" : "in",
+    quantity: r.quantity,
+    unitPrice: r.unit_price,
+    supplierId: r.supplier_id ?? null,
+    clientId: r.client_id ?? null,
+    clientTxId: r.client_tx_id ?? null,
+    note: r.note || "",
+    date: r.date || "",
+    fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : null,
+  };
 }
 
 /** Get the active fiscal year label from fiscal_years table. On web uses AsyncStorage activeFY. If none set, returns current FY and ensures a row exists. */
@@ -372,8 +464,27 @@ function rowToClient(c, txRows) {
         date: t.date,
         ...(t.worker_id != null && { workerId: t.worker_id }),
         ...(t.supplier_id != null && { supplierId: t.supplier_id }),
+        ...(t.stock_item_id != null && { stockItemId: t.stock_item_id }),
+        ...(t.stock_quantity != null && { stockQuantity: t.stock_quantity }),
+        ...(t.stock_movement_id != null && { stockMovementId: t.stock_movement_id }),
       })),
   };
+}
+
+function mapClientTxToDb(tx) {
+  return [
+    tx.id,
+    tx.type || "income",
+    tx.amount,
+    tx.cat || "",
+    tx.note || "",
+    tx.date || "",
+    tx.workerId ?? null,
+    tx.supplierId ?? null,
+    tx.stockItemId ?? null,
+    tx.stockQuantity ?? null,
+    tx.stockMovementId ?? null,
+  ];
 }
 
 /**
@@ -388,7 +499,7 @@ export async function getFullState() {
         "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id DESC"
       );
       const txRows = await database.getAllAsync(
-        "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
+        `SELECT ${CLIENT_TX_SELECT} FROM client_transactions ORDER BY client_id, id`
       );
       const generalRows = await database.getAllAsync(
         "SELECT id, amount, cat, note, date, fiscal_year_id, tx_kind FROM general ORDER BY id"
@@ -463,7 +574,7 @@ export async function getClients() {
           ? await database.getAllAsync(sql, fyId)
           : await database.getAllAsync(sql);
       const txRows = await database.getAllAsync(
-        "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions ORDER BY client_id, id"
+        `SELECT ${CLIENT_TX_SELECT} FROM client_transactions ORDER BY client_id, id`
       );
       return clientsRows.map((c) => rowToClient(c, txRows));
     });
@@ -536,7 +647,7 @@ export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, o
       if (ids.length > 0) {
         const ph = ids.map(() => "?").join(",");
         txRows = await database.getAllAsync(
-          `SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions WHERE client_id IN (${ph}) ORDER BY client_id, id`,
+          `SELECT ${CLIENT_TX_SELECT} FROM client_transactions WHERE client_id IN (${ph}) ORDER BY client_id, id`,
           ...ids
         );
       }
@@ -566,7 +677,7 @@ export async function getClientWithTxs(clientId) {
       );
       if (clientRows.length === 0) return null;
       const txRows = await database.getAllAsync(
-        "SELECT id, client_id, type, amount, cat, note, date, worker_id, supplier_id FROM client_transactions WHERE client_id = ? ORDER BY id",
+        `SELECT ${CLIENT_TX_SELECT} FROM client_transactions WHERE client_id = ? ORDER BY id`,
         clientId
       );
       return rowToClient(clientRows[0], txRows);
@@ -1175,16 +1286,10 @@ export async function saveState(data) {
         await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", c.id);
         for (const t of c.txs || []) {
           await database.runAsync(
-            "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id, stock_item_id, stock_quantity, stock_movement_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             t.id,
             c.id,
-            t.type || "income",
-            t.amount,
-            t.cat || "",
-            t.note || "",
-            t.date || "",
-            t.workerId ?? null,
-            t.supplierId ?? null
+            ...mapClientTxToDb(t).slice(1)
           );
         }
       }
@@ -1270,16 +1375,10 @@ export async function upsertClient(client) {
       await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", client.id);
       for (const t of client.txs || []) {
         await database.runAsync(
-          "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id, stock_item_id, stock_quantity, stock_movement_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           t.id,
           client.id,
-          t.type || "income",
-          t.amount,
-          t.cat || "",
-          t.note || "",
-          t.date || "",
-          t.workerId ?? null,
-          t.supplierId ?? null
+          ...mapClientTxToDb(t).slice(1)
         );
       }
     });
@@ -1333,6 +1432,9 @@ export async function upsertClientTx(clientId, tx) {
           date: tx.date || "",
           workerId: tx.workerId,
           supplierId: tx.supplierId,
+          stockItemId: tx.stockItemId,
+          stockQuantity: tx.stockQuantity,
+          stockMovementId: tx.stockMovementId,
         };
         if (i >= 0) txs[i] = row;
         else txs.push(row);
@@ -1343,16 +1445,10 @@ export async function upsertClientTx(clientId, tx) {
     }
     await runDb((database) =>
       database.runAsync(
-        "INSERT OR REPLACE INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id, stock_item_id, stock_quantity, stock_movement_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         tx.id,
         clientId,
-        tx.type || "income",
-        tx.amount,
-        tx.cat || "",
-        tx.note || "",
-        tx.date || "",
-        tx.workerId ?? null,
-        tx.supplierId ?? null
+        ...mapClientTxToDb(tx).slice(1)
       )
     );
   } catch (e) {
@@ -1369,17 +1465,32 @@ export async function deleteClientTx(clientId, txId) {
     if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
+      let movementId = null;
       const clients = state.clients.map((c) => {
         if (String(c.id) !== String(clientId)) return c;
+        const tx = (c.txs || []).find((t) => String(t.id) === String(txId));
+        if (tx?.stockMovementId != null) movementId = tx.stockMovementId;
         const txs = (c.txs || []).filter((t) => String(t.id) !== String(txId));
         return { ...c, txs };
       });
-      await setWebState({ ...state, clients });
+      let stockMovements = state.stockMovements || [];
+      if (movementId != null) {
+        stockMovements = stockMovements.filter((m) => String(m.id) !== String(movementId));
+      }
+      await setWebState({ ...state, clients, stockMovements });
       return;
     }
-    await runDb((database) =>
-      database.runAsync("DELETE FROM client_transactions WHERE client_id = ? AND id = ?", clientId, txId)
-    );
+    await runDb(async (database) => {
+      const row = await database.getFirstAsync(
+        "SELECT stock_movement_id FROM client_transactions WHERE client_id = ? AND id = ?",
+        clientId,
+        txId
+      );
+      if (row?.stock_movement_id != null) {
+        await database.runAsync("DELETE FROM stock_movements WHERE id = ?", row.stock_movement_id);
+      }
+      await database.runAsync("DELETE FROM client_transactions WHERE client_id = ? AND id = ?", clientId, txId);
+    });
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteClientTx error:", e.message);
@@ -1566,6 +1677,8 @@ export async function setSettings(settings) {
         generalTxs: (state && state.generalTxs) || [],
         workers: (state && state.workers) || [],
         suppliers: (state && state.suppliers) || [],
+        stockItems: (state && state.stockItems) || [],
+        stockMovements: (state && state.stockMovements) || [],
         activeFY: state && state.activeFY,
         activeFiscalYearId: state && state.activeFiscalYearId,
         customFYs: state && state.customFYs,
@@ -1601,6 +1714,407 @@ export async function setSettings(settings) {
   }
 }
 
+// ---------- Stock / warehouse ----------
+
+async function getStockItemsWithDb(database) {
+  const rows = await database.getAllAsync("SELECT id, name, unit, expense_cat FROM stock_items ORDER BY name");
+  return rows.map(mapStockItemRow);
+}
+
+async function getStockMovementsWithDb(database, itemId = null) {
+  const sql =
+    itemId != null
+      ? "SELECT id, item_id, direction, quantity, unit_price, supplier_id, client_id, client_tx_id, note, date, fiscal_year_id FROM stock_movements WHERE item_id = ? ORDER BY date, id"
+      : "SELECT id, item_id, direction, quantity, unit_price, supplier_id, client_id, client_tx_id, note, date, fiscal_year_id FROM stock_movements ORDER BY date DESC, id DESC";
+  const rows =
+    itemId != null
+      ? await database.getAllAsync(sql, itemId)
+      : await database.getAllAsync(sql);
+  return rows.map(mapStockMovementRow);
+}
+
+export async function getStockItems() {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      return state?.stockItems || [];
+    }
+    return await runDb(getStockItemsWithDb);
+  } catch (e) {
+    console.warn("getStockItems:", e?.message || e);
+    return [];
+  }
+}
+
+/** @returns {Promise<Array<{ item: object, quantity: number, avgCost: number, totalValue: number }>>} */
+export async function getStockItemsWithBalance() {
+  try {
+    const items = await getStockItems();
+    if (IS_WEB) {
+      const state = await getWebState();
+      const movements = state?.stockMovements || [];
+      return items.map((item) => {
+        const itemMovs = movements.filter((m) => Number(m.itemId) === Number(item.id));
+        const bal = computeStockBalance(itemMovs);
+        return {
+          item,
+          quantity: bal.quantity,
+          avgCost: bal.avgCost,
+          totalValue: bal.totalCost,
+        };
+      });
+    }
+    return await runDb(async (database) => {
+      const allMovs = await getStockMovementsWithDb(database);
+      return items.map((item) => {
+        const itemMovs = allMovs.filter((m) => Number(m.itemId) === Number(item.id));
+        const bal = computeStockBalance(itemMovs);
+        return {
+          item,
+          quantity: bal.quantity,
+          avgCost: bal.avgCost,
+          totalValue: bal.totalCost,
+        };
+      });
+    });
+  } catch (e) {
+    console.warn("getStockItemsWithBalance:", e?.message || e);
+    return [];
+  }
+}
+
+export async function getStockMovements(itemId = null, fiscalYearId = null) {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let list = state?.stockMovements || [];
+      if (itemId != null) list = list.filter((m) => Number(m.itemId) === Number(itemId));
+      if (fiscalYearId != null) {
+        const fy = Number(fiscalYearId);
+        list = list.filter((m) => Number(m.fiscalYearId) === fy);
+      }
+      return [...list].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    }
+    return await runDb(async (database) => {
+      let list = await getStockMovementsWithDb(database, itemId);
+      if (fiscalYearId != null) {
+        const fy = Number(fiscalYearId);
+        list = list.filter((m) => Number(m.fiscalYearId) === fy);
+      }
+      return list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    });
+  } catch (e) {
+    console.warn("getStockMovements:", e?.message || e);
+    return [];
+  }
+}
+
+export async function upsertStockItem(item) {
+  if (!item?.name) return null;
+  const id = item.id != null ? item.id : Date.now();
+  const row = {
+    id,
+    name: String(item.name).trim(),
+    unit: item.unit || "count",
+    expenseCat: item.expenseCat || "أخرى",
+  };
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return null;
+      const stockItems = [...(state.stockItems || [])];
+      const i = stockItems.findIndex((x) => String(x.id) === String(id));
+      if (i >= 0) stockItems[i] = row;
+      else stockItems.push(row);
+      await setWebState({ ...state, stockItems });
+      return row;
+    }
+    await runDb((database) =>
+      database.runAsync(
+        "INSERT OR REPLACE INTO stock_items (id, name, unit, expense_cat) VALUES (?, ?, ?, ?)",
+        row.id,
+        row.name,
+        row.unit,
+        row.expenseCat
+      )
+    );
+    return row;
+  } catch (e) {
+    console.warn("upsertStockItem:", e?.message || e);
+    throw e;
+  }
+}
+
+export async function deleteStockItem(itemId) {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return;
+      const hasMov = (state.stockMovements || []).some((m) => Number(m.itemId) === Number(itemId));
+      if (hasMov) throw new Error("HAS_MOVEMENTS");
+      const stockItems = (state.stockItems || []).filter((x) => String(x.id) !== String(itemId));
+      await setWebState({ ...state, stockItems });
+      return;
+    }
+    await runDb(async (database) => {
+      const c = await database.getFirstAsync(
+        "SELECT COUNT(*) AS n FROM stock_movements WHERE item_id = ?",
+        itemId
+      );
+      if ((c?.n ?? 0) > 0) throw new Error("HAS_MOVEMENTS");
+      await database.runAsync("DELETE FROM stock_items WHERE id = ?", itemId);
+    });
+  } catch (e) {
+    if (e?.message === "HAS_MOVEMENTS") throw e;
+    console.warn("deleteStockItem:", e?.message || e);
+    throw e;
+  }
+}
+
+/**
+ * @returns {Promise<{ movementId: number, totalCost: number }>}
+ */
+export async function recordStockPurchase({
+  itemId,
+  supplierId,
+  quantity,
+  unitPrice,
+  date,
+  note,
+  fiscalYearId,
+}) {
+  const qty = Number(quantity);
+  const price = Number(unitPrice);
+  if (!(qty > 0) || !(price >= 0)) throw new Error("INVALID_INPUT");
+  const movementId = Date.now();
+  const mov = {
+    id: movementId,
+    itemId,
+    direction: "in",
+    quantity: qty,
+    unitPrice: price,
+    supplierId: supplierId ?? null,
+    clientId: null,
+    clientTxId: null,
+    note: note || "",
+    date: date || new Date().toISOString().split("T")[0],
+    fiscalYearId: fiscalYearId ?? null,
+  };
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) throw new Error("NO_STATE");
+      await setWebState({
+        ...state,
+        stockMovements: [...(state.stockMovements || []), mov],
+      });
+      return { movementId, totalCost: qty * price };
+    }
+    await runDb((database) =>
+      database.runAsync(
+        `INSERT INTO stock_movements (id, item_id, direction, quantity, unit_price, supplier_id, client_id, client_tx_id, note, date, fiscal_year_id)
+         VALUES (?, ?, 'in', ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+        mov.id,
+        mov.itemId,
+        mov.quantity,
+        mov.unitPrice,
+        mov.supplierId,
+        mov.note,
+        mov.date,
+        mov.fiscalYearId
+      )
+    );
+    return { movementId, totalCost: qty * price };
+  } catch (e) {
+    console.warn("recordStockPurchase:", e?.message || e);
+    throw e;
+  }
+}
+
+/**
+ * Issue stock to client: creates stock movement + client expense tx.
+ * @returns {Promise<{ movementId: number, clientTxId: number, amount: number }>}
+ */
+export async function recordStockIssue({
+  itemId,
+  clientId,
+  quantity,
+  date,
+  note,
+  fiscalYearId,
+  supplierId,
+}) {
+  const qty = Number(quantity);
+  if (!(qty > 0)) throw new Error("INVALID_INPUT");
+  const items = await getStockItems();
+  const item = items.find((x) => Number(x.id) === Number(itemId));
+  if (!item) throw new Error("ITEM_NOT_FOUND");
+
+  let itemMovements;
+  if (IS_WEB) {
+    const state = await getWebState();
+    itemMovements = (state?.stockMovements || []).filter((m) => Number(m.itemId) === Number(itemId));
+  } else {
+    itemMovements = await runDb((db) => getStockMovementsWithDb(db, itemId));
+  }
+  if (!canIssueQuantity(itemMovements, qty)) throw new Error("INSUFFICIENT_STOCK");
+  const amount = issueCostAmount(itemMovements, qty);
+  const movementId = Date.now();
+  const clientTxId = movementId + 1;
+  const issueDate = date || new Date().toISOString().split("T")[0];
+  const unitLabel = getStockUnitLabel(item.unit);
+  const noteText =
+    (note ? `${note} — ` : "") +
+    `من المخزن: ${qty} ${unitLabel} — ${item.name}`;
+
+  const mov = {
+    id: movementId,
+    itemId,
+    direction: "out",
+    quantity: qty,
+    unitPrice: amount / qty,
+    supplierId: supplierId ?? null,
+    clientId,
+    clientTxId,
+    note: note || "",
+    date: issueDate,
+    fiscalYearId: fiscalYearId ?? null,
+  };
+
+  const tx = {
+    id: clientTxId,
+    type: "expense",
+    amount,
+    cat: item.expenseCat || "أخرى",
+    note: noteText,
+    date: issueDate,
+    supplierId: supplierId ?? null,
+    stockItemId: itemId,
+    stockQuantity: qty,
+    stockMovementId: movementId,
+  };
+
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) throw new Error("NO_STATE");
+      const clients = state.clients.map((c) => {
+        if (String(c.id) !== String(clientId)) return c;
+        return { ...c, txs: [...(c.txs || []), tx] };
+      });
+      await setWebState({
+        ...state,
+        clients,
+        stockMovements: [...(state.stockMovements || []), mov],
+      });
+      return { movementId, clientTxId, amount };
+    }
+    await runDb(async (database) => {
+      await database.runAsync(
+        `INSERT INTO stock_movements (id, item_id, direction, quantity, unit_price, supplier_id, client_id, client_tx_id, note, date, fiscal_year_id)
+         VALUES (?, ?, 'out', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        mov.id,
+        mov.itemId,
+        mov.quantity,
+        mov.unitPrice,
+        mov.supplierId,
+        mov.clientId,
+        mov.clientTxId,
+        mov.note,
+        mov.date,
+        mov.fiscalYearId
+      );
+      await database.runAsync(
+        `INSERT INTO client_transactions (id, client_id, type, amount, cat, note, date, worker_id, supplier_id, stock_item_id, stock_quantity, stock_movement_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+        tx.id,
+        clientId,
+        tx.type,
+        tx.amount,
+        tx.cat,
+        tx.note,
+        tx.date,
+        tx.supplierId,
+        tx.stockItemId,
+        tx.stockQuantity,
+        tx.stockMovementId
+      );
+    });
+    return { movementId, clientTxId, amount };
+  } catch (e) {
+    console.warn("recordStockIssue:", e?.message || e);
+    throw e;
+  }
+}
+
+export async function deleteStockMovement(movementId) {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return;
+      const mov = (state.stockMovements || []).find((m) => String(m.id) === String(movementId));
+      if (!mov) return;
+      let clients = state.clients;
+      if (mov.direction === "out" && mov.clientTxId != null && mov.clientId != null) {
+        clients = clients.map((c) => {
+          if (String(c.id) !== String(mov.clientId)) return c;
+          return {
+            ...c,
+            txs: (c.txs || []).filter((t) => String(t.id) !== String(mov.clientTxId)),
+          };
+        });
+      }
+      const stockMovements = (state.stockMovements || []).filter(
+        (m) => String(m.id) !== String(movementId)
+      );
+      await setWebState({ ...state, clients, stockMovements });
+      return;
+    }
+    await runDb(async (database) => {
+      const mov = await database.getFirstAsync(
+        "SELECT direction, client_id, client_tx_id FROM stock_movements WHERE id = ?",
+        movementId
+      );
+      if (!mov) return;
+      if (mov.direction === "out" && mov.client_tx_id != null) {
+        await database.runAsync(
+          "DELETE FROM client_transactions WHERE client_id = ? AND id = ?",
+          mov.client_id,
+          mov.client_tx_id
+        );
+      }
+      await database.runAsync("DELETE FROM stock_movements WHERE id = ?", movementId);
+    });
+  } catch (e) {
+    console.warn("deleteStockMovement:", e?.message || e);
+    throw e;
+  }
+}
+
+/**
+ * @returns {Promise<{ inventoryValue: number, fyPurchases: number, fyIssued: number, fyIssuedQty: number }>}
+ */
+export async function getStockDashboardStats(fiscalYearId) {
+  try {
+    const balances = await getStockItemsWithBalance();
+    const inventoryValue = balances.reduce((s, b) => s + (b.totalValue || 0), 0);
+    const fyId = fiscalYearId != null ? Number(fiscalYearId) : null;
+    const movs = await getStockMovements(null, fyId);
+    let fyPurchases = 0;
+    let fyIssued = 0;
+    for (const m of movs) {
+      const q = Number(m.quantity) || 0;
+      const p = Number(m.unitPrice) || 0;
+      if (m.direction === "in") fyPurchases += q * p;
+      else fyIssued += q * p;
+    }
+    return { inventoryValue, fyPurchases, fyIssued };
+  } catch (e) {
+    console.warn("getStockDashboardStats:", e?.message || e);
+    return { inventoryValue: 0, fyPurchases: 0, fyIssued: 0 };
+  }
+}
+
 /**
  * Serialized payload for cloud backup: SQLite bytes on native; JSON snapshot on web.
  * @returns {Promise<{ bytes: Uint8Array, extension: string } | null>}
@@ -1621,6 +2135,8 @@ export async function getDatabaseBackupPayload() {
         activeFiscalYearId: state.activeFiscalYearId ?? null,
         customFYs: state.customFYs || [],
         nissabPrice: state.nissabPrice != null ? state.nissabPrice : 85000,
+        stockItems: state.stockItems || [],
+        stockMovements: state.stockMovements || [],
       };
       const json = JSON.stringify(payload);
       return { bytes: new TextEncoder().encode(json), extension: "json" };

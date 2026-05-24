@@ -461,7 +461,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
             </TouchableOpacity>
             {showClientPicker && (
               <View style={styles.pickerDropdown}>
-                <ScrollView style={styles.pickerList}>
+                <ScrollView style={styles.pickerList} nestedScrollEnabled keyboardShouldPersistTaps="always">
                   <TouchableOpacity
                     style={[styles.pickerItem, !form.clientId && styles.pickerItemActive]}
                     onPress={() => {

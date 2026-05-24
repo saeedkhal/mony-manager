@@ -22,9 +22,27 @@ export const MONTHS_AR = [
   "ديسمبر",
 ];
 
+export const STOCK_UNITS = [
+  { id: "count", label: "عدد" },
+  { id: "length", label: "متر طول" },
+  { id: "area", label: "متر مربع" },
+  { id: "volume", label: "متر مكعب" },
+  { id: "weight", label: "كجم" },
+];
+
+export const DEFAULT_STOCK_ITEMS = [
+  { name: "قماش", unit: "length", expenseCat: "قماش" },
+  { name: "اسفنج", unit: "count", expenseCat: "أخرى" },
+  { name: "خشب", unit: "length", expenseCat: "خشب وكلف" },
+  { name: "كلف", unit: "area", expenseCat: "خشب وكلف" },
+  { name: "غراء / لزق", unit: "count", expenseCat: "أخرى" },
+  { name: "مسامير وإكسسوار", unit: "count", expenseCat: "أخرى" },
+];
+
 export const NAV_ITEMS = [
   ["dashboard", "📊", "الرئيسية"],
   ["clients", "👥", "العملاء"],
+  ["warehouse", "📦", "المخزن"],
   ["workers", "👷", "الصنايعية"],
   ["suppliers", "🏭", "الموردين"],
   ["general", "🏢", "مصروفات عامة"],

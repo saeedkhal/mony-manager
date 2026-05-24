@@ -19,12 +19,21 @@ export default function CustomModal({ visible, onClose, children, centered = fal
         style={styles.keyboardAvoid}
         keyboardVerticalOffset={0}
       >
-        <Pressable style={[styles.modalOverlay, centered && styles.modalOverlayCentered]} onPress={onClose}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+        <View style={[styles.modalOverlay, centered && styles.modalOverlayCentered]}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="إغلاق الخلفية"
+          />
+          <View style={styles.modalContent}>
             <ScrollView
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              style={styles.modalScroll}
               contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="always"
+              nestedScrollEnabled
+              bounces={false}
             >
               {children}
             </ScrollView>
@@ -42,8 +51,8 @@ export default function CustomModal({ visible, onClose, children, centered = fal
             <TouchableOpacity style={styles.modalCancelBtn} onPress={onClose}>
               <Text style={styles.modalCancelText}>إلغاء</Text>
             </TouchableOpacity>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -75,7 +84,12 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 440,
     maxHeight: "90%",
+    flexShrink: 1,
     position: "relative",
+    zIndex: 1,
+  },
+  modalScroll: {
+    flexShrink: 1,
   },
   modalCloseTopWrap: {
     position: "absolute",
@@ -99,7 +113,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 36,
-    paddingBottom: 80,
+    paddingBottom: 12,
   },
   modalCancelBtn: {
     backgroundColor: "rgba(255,255,255,0.07)",

@@ -208,7 +208,7 @@ export default function FiscalYear() {
               </TouchableOpacity>
               {showYearPicker ? (
                 <View style={styles.pickerDropdown}>
-                  <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled">
+                  <ScrollView style={styles.pickerList} nestedScrollEnabled keyboardShouldPersistTaps="always">
                     <TouchableOpacity
                       style={[
                         styles.pickerItem,

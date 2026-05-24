@@ -4,7 +4,7 @@ import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { BarChart } from "react-native-chart-kit";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
-import { getClients, getClientsPage, getGeneralTxs } from "../utils/db";
+import { getClients, getClientsPage, getGeneralTxs, getStockDashboardStats } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles, { SCREEN_WIDTH } from "../styles/AppStyles";
@@ -105,6 +105,11 @@ export default function Dashboard() {
   const [summaryClients, setSummaryClients] = useState([]);
   const [summaryHasMore, setSummaryHasMore] = useState(false);
   const [summaryLoadingMore, setSummaryLoadingMore] = useState(false);
+  const [stockStats, setStockStats] = useState({
+    inventoryValue: 0,
+    fyPurchases: 0,
+    fyIssued: 0,
+  });
   const summaryClientsRef = useRef([]);
 
   useEffect(() => {
@@ -120,13 +125,15 @@ export default function Dashboard() {
       getClients(),
       getGeneralTxs(activeFiscalYearId),
       getClientsPage(DASH_CLIENT_SUMMARY_PAGE, 0),
+      getStockDashboardStats(activeFiscalYearId),
     ])
-      .then(([c, g, { clients: first, hasMore }]) => {
+      .then(([c, g, { clients: first, hasMore }, stock]) => {
         if (!cancelled) {
           setClients(c || []);
           setGeneralTxs(g || []);
           setSummaryClients(first || []);
           setSummaryHasMore(!!hasMore);
+          setStockStats(stock || { inventoryValue: 0, fyPurchases: 0, fyIssued: 0 });
         }
       })
       .catch(() => {
@@ -135,6 +142,7 @@ export default function Dashboard() {
           setGeneralTxs([]);
           setSummaryClients([]);
           setSummaryHasMore(false);
+          setStockStats({ inventoryValue: 0, fyPurchases: 0, fyIssued: 0 });
         }
       });
     return () => {
@@ -304,6 +312,36 @@ export default function Dashboard() {
                 {fmt(totalGenIncome)} {CURRENCY}
               </Text>
               <Text style={styles.statSubPct}>{formatPctShare(totalGenIncome, totalSales)}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.statCard,
+            { backgroundColor: "rgba(99,102,241,0.06)", borderColor: "rgba(99,102,241,0.28)" },
+          ]}
+        >
+          <View style={styles.statCardTitleRow}>
+            <Text style={styles.statIcon}>📦</Text>
+            <Text style={styles.statCardMainTitle}>المخزن</Text>
+          </View>
+          <Text style={styles.statTotalCaption}>قيمة المخزون (تقريبي)</Text>
+          <Text style={[styles.statValue, { color: "#818cf8" }]}>
+            {fmt(stockStats.inventoryValue)} {CURRENCY}
+          </Text>
+          <View style={styles.statSubGrid}>
+            <View style={[styles.statSubCard, { borderColor: "rgba(16,185,129,0.3)" }]}>
+              <Text style={styles.statSubLabel}>مشتريات السنة</Text>
+              <Text style={[styles.statSubValue, { color: "#10b981" }]}>
+                {fmt(stockStats.fyPurchases)} {CURRENCY}
+              </Text>
+            </View>
+            <View style={[styles.statSubCard, { borderColor: "rgba(251,146,60,0.3)" }]}>
+              <Text style={styles.statSubLabel}>صرف على العملاء</Text>
+              <Text style={[styles.statSubValue, { color: "#fb923c" }]}>
+                {fmt(stockStats.fyIssued)} {CURRENCY}
+              </Text>
             </View>
           </View>
         </View>
