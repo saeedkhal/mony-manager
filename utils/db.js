@@ -1783,6 +1783,12 @@ export async function getStockItemsWithBalance() {
   }
 }
 
+function sortStockMovementsDesc(a, b) {
+  const d = String(b.date || "").localeCompare(String(a.date || ""));
+  if (d !== 0) return d;
+  return Number(b.id) - Number(a.id);
+}
+
 export async function getStockMovements(itemId = null, fiscalYearId = null) {
   try {
     if (IS_WEB) {
@@ -1793,7 +1799,7 @@ export async function getStockMovements(itemId = null, fiscalYearId = null) {
         const fy = Number(fiscalYearId);
         list = list.filter((m) => Number(m.fiscalYearId) === fy);
       }
-      return [...list].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      return [...list].sort(sortStockMovementsDesc);
     }
     return await runDb(async (database) => {
       let list = await getStockMovementsWithDb(database, itemId);
@@ -1801,11 +1807,72 @@ export async function getStockMovements(itemId = null, fiscalYearId = null) {
         const fy = Number(fiscalYearId);
         list = list.filter((m) => Number(m.fiscalYearId) === fy);
       }
-      return list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      return list.sort(sortStockMovementsDesc);
     });
   } catch (e) {
     console.warn("getStockMovements:", e?.message || e);
     return [];
+  }
+}
+
+const STOCK_MOVEMENTS_PAGE_DEFAULT = 15;
+
+/**
+ * Paginated stock movements (newest first) for warehouse activity list.
+ * @returns {Promise<{ movements: object[], hasMore: boolean }>}
+ */
+export async function getStockMovementsPage(
+  fiscalYearId = null,
+  limit = STOCK_MOVEMENTS_PAGE_DEFAULT,
+  offset = 0,
+  itemId = null
+) {
+  const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || STOCK_MOVEMENTS_PAGE_DEFAULT));
+  const off = Math.max(0, Math.floor(Number(offset)) || 0);
+  const take = lim + 1;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let list = state?.stockMovements || [];
+      if (itemId != null) list = list.filter((m) => Number(m.itemId) === Number(itemId));
+      if (fiscalYearId != null) {
+        const fy = Number(fiscalYearId);
+        list = list.filter((m) => Number(m.fiscalYearId) === fy);
+      }
+      list = [...list].sort(sortStockMovementsDesc);
+      const slice = list.slice(off, off + take);
+      const hasMore = slice.length > lim;
+      const movements = hasMore ? slice.slice(0, lim) : slice;
+      return { movements, hasMore };
+    }
+    return await runDb(async (database) => {
+      const clauses = [];
+      const params = [];
+      if (itemId != null) {
+        clauses.push("item_id = ?");
+        params.push(itemId);
+      }
+      if (fiscalYearId != null) {
+        clauses.push("fiscal_year_id = ?");
+        params.push(Number(fiscalYearId));
+      }
+      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+      const rows = await database.getAllAsync(
+        `SELECT id, item_id, direction, quantity, unit_price, supplier_id, client_id, client_tx_id, note, date, fiscal_year_id
+         FROM stock_movements ${where}
+         ORDER BY date DESC, id DESC
+         LIMIT ? OFFSET ?`,
+        ...params,
+        take,
+        off
+      );
+      const hasMore = rows.length > lim;
+      const pageRows = hasMore ? rows.slice(0, lim) : rows;
+      return { movements: pageRows.map(mapStockMovementRow), hasMore };
+    });
+  } catch (e) {
+    console.warn("getStockMovementsPage:", e?.message || e);
+    return { movements: [], hasMore: false };
   }
 }
 

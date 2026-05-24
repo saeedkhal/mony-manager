@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import {
   getStockItemsWithBalance,
-  getStockMovements,
+  getStockMovementsPage,
   getSuppliers,
   getClients,
   recordStockPurchase,
@@ -21,6 +21,8 @@ import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
 
+const STOCK_MOVEMENTS_PAGE_SIZE = 15;
+
 export default function Warehouse() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
   const isFocused = useIsFocused();
@@ -32,20 +34,71 @@ export default function Warehouse() {
   const [loading, setLoading] = useState(true);
   const [showSupplierPicker, setShowSupplierPicker] = useState(false);
   const [showItemPicker, setShowItemPicker] = useState(false);
+  const [movementsHasMore, setMovementsHasMore] = useState(false);
+  const [movementsLoadingMore, setMovementsLoadingMore] = useState(false);
+  const movementsRef = useRef([]);
+
+  useEffect(() => {
+    movementsRef.current = movements;
+  }, [movements]);
+
+  const loadMovementsFirstPage = useCallback(async () => {
+    if (activeFiscalYearId == null) {
+      setMovements([]);
+      setMovementsHasMore(false);
+      return;
+    }
+    const { movements: first, hasMore } = await getStockMovementsPage(
+      activeFiscalYearId,
+      STOCK_MOVEMENTS_PAGE_SIZE,
+      0
+    );
+    setMovements(first || []);
+    setMovementsHasMore(!!hasMore);
+  }, [activeFiscalYearId]);
 
   const refetch = useCallback(async () => {
     if (!loaded) return;
-    const [bal, mov, sup, cl] = await Promise.all([
+    const [bal, sup, cl] = await Promise.all([
       getStockItemsWithBalance(),
-      getStockMovements(null, activeFiscalYearId),
       getSuppliers(),
       getClients(),
     ]);
     setBalances(bal || []);
-    setMovements((mov || []).slice(0, 40));
     setSuppliers(sup || []);
     setClients(cl || []);
-  }, [loaded, activeFiscalYearId]);
+    await loadMovementsFirstPage();
+  }, [loaded, activeFiscalYearId, loadMovementsFirstPage]);
+
+  const loadMoreMovements = useCallback(async () => {
+    if (!movementsHasMore || movementsLoadingMore || loading || activeFiscalYearId == null) return;
+    setMovementsLoadingMore(true);
+    try {
+      const offset = movementsRef.current.length;
+      const { movements: next, hasMore } = await getStockMovementsPage(
+        activeFiscalYearId,
+        STOCK_MOVEMENTS_PAGE_SIZE,
+        offset
+      );
+      setMovements((prev) => [...prev, ...(next || [])]);
+      setMovementsHasMore(!!hasMore);
+    } catch (_) {
+      setMovementsHasMore(false);
+    } finally {
+      setMovementsLoadingMore(false);
+    }
+  }, [movementsHasMore, movementsLoadingMore, loading, activeFiscalYearId]);
+
+  const onScrollWarehouse = useCallback(
+    (e) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const threshold = 120;
+      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold) {
+        loadMoreMovements();
+      }
+    },
+    [loadMoreMovements]
+  );
 
   useEffect(() => {
     if (!loaded || !isFocused) return;
@@ -56,6 +109,7 @@ export default function Warehouse() {
         if (!cancelled) {
           setBalances([]);
           setMovements([]);
+          setMovementsHasMore(false);
         }
       })
       .finally(() => {
@@ -195,7 +249,7 @@ export default function Warehouse() {
 
   return (
     <>
-      <ScreenLayout>
+      <ScreenLayout scrollViewProps={{ onScroll: onScrollWarehouse, scrollEventThrottle: 400 }}>
         <View style={styles.dashboard}>
           <Text style={styles.cardTitle}>📦 المخزن — {activeFiscalYearLabel}</Text>
 
@@ -286,6 +340,12 @@ export default function Warehouse() {
               );
             })
           )}
+          {movements.length > 0 && movementsLoadingMore ? (
+            <ActivityIndicator color="#818cf8" style={{ marginVertical: 16 }} />
+          ) : null}
+          {movements.length > 0 && !movementsHasMore && !movementsLoadingMore ? (
+            <Text style={[styles.emptyText, { marginTop: 8, fontSize: 12 }]}>— نهاية الحركات —</Text>
+          ) : null}
         </View>
       </ScreenLayout>
 
