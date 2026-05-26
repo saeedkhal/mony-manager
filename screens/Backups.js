@@ -9,9 +9,10 @@ import {
 } from "react-native";
 import * as Google from "expo-auth-session/providers/google";
 import { useApp } from "../context/AppContext";
-import { getDatabaseBackupPayload } from "../utils/db";
+import { getDatabaseBackupPayload, restoreDatabaseFromBackup } from "../utils/db";
 import {
   clearStoredGoogleAuth,
+  downloadBackupFileFromDrive,
   enforceDriveBackupRetention,
   GOOGLE_DRIVE_EXTRA_SCOPES,
   listBackupFilesFromDrive,
@@ -55,8 +56,13 @@ function formatDriveTime(iso) {
   }
 }
 
+function isRestorableBackupName(name) {
+  const n = String(name || "").toLowerCase();
+  return n.endsWith(".db") || n.endsWith(".json");
+}
+
 export default function Backups() {
-  const { loaded } = useApp();
+  const { loaded, reloadFromDatabase } = useApp();
   const { androidClientId, iosClientId, webClientId } = getGoogleOAuthClientIdsForAuthRequest();
   /** @owner/slug for Expo auth proxy — set EXPO_PUBLIC_EXPO_PROJECT_FULL_NAME or expo.owner + slug. */
   const projectNameForProxy = getExpoProjectFullName() || undefined;
@@ -79,6 +85,7 @@ export default function Backups() {
   const [files, setFiles] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [restoringId, setRestoringId] = useState(null);
   const [listError, setListError] = useState("");
 
   const refreshLocalAuthFlag = useCallback(async () => {
@@ -147,6 +154,38 @@ export default function Backups() {
     setListError("");
   };
 
+  const onUseBackup = (file) => {
+    if (!file?.id || !isRestorableBackupName(file.name)) {
+      Alert.alert("استعادة", "نوع الملف غير مدعوم للاستعادة.");
+      return;
+    }
+    Alert.alert(
+      "استعادة النسخة الاحتياطية",
+      `سيتم استبدال كل البيانات المحلية الحالية بالنسخة:\n${file.name}\n\nهل تريد المتابعة؟`,
+      [
+        { text: "إلغاء", style: "cancel" },
+        {
+          text: "استخدم",
+          style: "destructive",
+          onPress: async () => {
+            setRestoringId(file.id);
+            setListError("");
+            try {
+              const bytes = await downloadBackupFileFromDrive(file.id);
+              await restoreDatabaseFromBackup(bytes, file.name);
+              await reloadFromDatabase();
+              Alert.alert("تم", "تمت استعادة البيانات من النسخة الاحتياطية.");
+            } catch (e) {
+              Alert.alert("فشل الاستعادة", e?.message || String(e));
+            } finally {
+              setRestoringId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const onBackupNow = async () => {
     if (!hasLocalAuth) {
       Alert.alert("نسخ احتياطي", "سجّل الدخول بحساب Google أولًا.");
@@ -204,7 +243,7 @@ export default function Backups() {
       <View style={styles.backupView}>
         <Text style={styles.backupTitle}>☁️ النسخ الاحتياطي (Google Drive)</Text>
         <Text style={styles.sectionSubtitle}>
-          نسخ قاعدة البيانات الحالية إلى مجلد على حساب Google الخاص بك، وعرض وتحميل النسخ من هناك.
+          نسخ قاعدة البيانات إلى Google Drive، أو استعادة نسخة سابقة بزر «استخدم» (تستبدل البيانات المحلية).
         </Text>
 
         {!configured && (
@@ -287,12 +326,26 @@ export default function Backups() {
                 <Text style={styles.backupItemMeta}>
                   آخر تعديل: {formatDriveTime(f.modifiedTime)} · {formatBytes(f.size)}
                 </Text>
-                <TouchableOpacity
-                  style={styles.backupOpenLink}
-                  onPress={() => Linking.openURL(`https://drive.google.com/file/d/${f.id}/view`)}
-                >
-                  <Text style={styles.backupOpenLinkText}>فتح في Google Drive</Text>
-                </TouchableOpacity>
+                <View style={styles.backupItemActions}>
+                  {isRestorableBackupName(f.name) ? (
+                    <TouchableOpacity
+                      disabled={restoringId != null}
+                      onPress={() => onUseBackup(f)}
+                    >
+                      {restoringId === f.id ? (
+                        <ActivityIndicator color="#34d399" size="small" />
+                      ) : (
+                        <Text style={styles.backupUseLinkText}>استخدم</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity
+                    style={styles.backupOpenLink}
+                    onPress={() => Linking.openURL(`https://drive.google.com/file/d/${f.id}/view`)}
+                  >
+                    <Text style={styles.backupOpenLinkText}>فتح في Google Drive</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ))}
           </View>

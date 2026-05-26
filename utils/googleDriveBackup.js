@@ -174,6 +174,24 @@ function buildMultipartRelated(metadata, fileBytes) {
   return { body, contentType: `multipart/related; boundary=${boundary}` };
 }
 
+/**
+ * Download a backup file's raw bytes from the user's Drive (same folder as backups).
+ * @param {string} fileId
+ * @returns {Promise<Uint8Array>}
+ */
+export async function downloadBackupFileFromDrive(fileId) {
+  if (!fileId) throw new Error("معرّف الملف غير صالح.");
+  const accessToken = await getFreshAccessToken();
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`فشل تحميل النسخة: ${res.status} ${t}`);
+  }
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
 export async function uploadDatabaseBackupToDrive({ fileName, bytes }) {
   const accessToken = await getFreshAccessToken();
   const folderId = await findOrCreateBackupFolder(accessToken);

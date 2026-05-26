@@ -2186,6 +2186,107 @@ export async function getStockDashboardStats(fiscalYearId) {
  * Serialized payload for cloud backup: SQLite bytes on native; JSON snapshot on web.
  * @returns {Promise<{ bytes: Uint8Array, extension: string } | null>}
  */
+const SQLITE_HEADER = "SQLite format 3\u0000";
+
+function isSqliteBackupBytes(bytes) {
+  if (!bytes || bytes.length < 16) return false;
+  for (let i = 0; i < 16; i++) {
+    if (bytes[i] !== SQLITE_HEADER.charCodeAt(i)) return false;
+  }
+  return true;
+}
+
+function isJsonBackupBytes(bytes) {
+  if (!bytes || bytes.length < 2) return false;
+  const c = bytes[0];
+  return c === 0x7b || c === 0x5b; // { or [
+}
+
+async function restoreWebStateFromJsonBackup(bytes) {
+  const text = new TextDecoder().decode(bytes);
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error("ملف النسخة غير صالح (JSON).");
+  }
+  if (payload?.v !== 1) {
+    throw new Error("إصدار النسخة الاحتياطية غير مدعوم.");
+  }
+  await setWebState({
+    clients: payload.clients || [],
+    generalTxs: payload.generalTxs || [],
+    workers: payload.workers || [],
+    suppliers: payload.suppliers || [],
+    activeFY: payload.activeFY ?? null,
+    activeFiscalYearId:
+      payload.activeFiscalYearId != null ? Number(payload.activeFiscalYearId) : null,
+    customFYs: payload.customFYs || [],
+    nissabPrice: payload.nissabPrice != null ? Number(payload.nissabPrice) : 85000,
+    stockItems: payload.stockItems || [],
+    stockMovements: payload.stockMovements || [],
+  });
+}
+
+async function restoreNativeDatabaseFromBytes(bytes) {
+  if (!isSqliteBackupBytes(bytes)) {
+    throw new Error("ملف قاعدة البيانات غير صالح (.db).");
+  }
+  const SQLite = require("expo-sqlite");
+  if (rawDb) {
+    try {
+      await rawDb.closeAsync();
+    } catch (_) {
+      /* ignore */
+    }
+    rawDb = null;
+  }
+  try {
+    await SQLite.deleteDatabaseAsync(DB_NAME);
+  } catch (_) {
+    /* ignore */
+  }
+
+  const memDb = await SQLite.deserializeDatabaseAsync(bytes);
+  const fileDb = await SQLite.openDatabaseAsync(DB_NAME);
+  try {
+    await SQLite.backupDatabaseAsync({
+      sourceDatabase: memDb,
+      sourceDatabaseName: "main",
+      destDatabase: fileDb,
+      destDatabaseName: "main",
+    });
+  } finally {
+    await memDb.closeAsync();
+    await fileDb.closeAsync();
+    rawDb = null;
+  }
+}
+
+/**
+ * Replace local app data with a backup downloaded from Drive.
+ * @param {Uint8Array} bytes
+ * @param {string} [fileName] Used to detect .db vs .json
+ */
+export async function restoreDatabaseFromBackup(bytes, fileName = "") {
+  const name = String(fileName || "").toLowerCase();
+  const work = dbQueue.then(async () => {
+    if (IS_WEB) {
+      if (!name.endsWith(".json") && !isJsonBackupBytes(bytes)) {
+        throw new Error("على الويب استعد ملفات .json فقط.");
+      }
+      await restoreWebStateFromJsonBackup(bytes);
+      return;
+    }
+    if (name.endsWith(".json") || (!name.endsWith(".db") && isJsonBackupBytes(bytes))) {
+      throw new Error("ملف JSON للويب — استعده من متصفح التطبيق.");
+    }
+    await restoreNativeDatabaseFromBytes(bytes);
+  });
+  dbQueue = work.catch(() => {});
+  return work;
+}
+
 export async function getDatabaseBackupPayload() {
   try {
     if (IS_WEB) {

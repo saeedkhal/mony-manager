@@ -4,6 +4,7 @@ import React, {
   useState,
   useEffect,
   useRef,
+  useCallback,
 } from "react";
 import { Animated, Dimensions } from "react-native";
 import { initState } from "../utils/storage";
@@ -36,35 +37,46 @@ export function AppProvider({ children }) {
     new Animated.Value(-SCREEN_WIDTH * 0.75),
   ).current;
 
-  useEffect(() => {
-    const loadData = async () => {
-      await initState();
-      const s = await getSettings();
-      setCustomFiscalYearIds(s.customFiscalYearIds || []);
+  const hydrateFromDatabase = useCallback(async () => {
+    await initState();
+    const s = await getSettings();
+    setCustomFiscalYearIds(s.customFiscalYearIds || []);
 
-      await getActiveFiscalYear();
-      let id = await getActiveFiscalYearId();
-      if (s.activeFiscalYearId != null && !Number.isNaN(Number(s.activeFiscalYearId))) {
-        id = Number(s.activeFiscalYearId);
-      }
-      if (id == null) {
-        const ensured = await ensureFiscalYearLabel(getCurrentFiscalYear());
-        if (ensured != null) id = ensured;
-      }
-      setActiveFiscalYearId(id);
-      const row = id != null ? await getFiscalYearRowById(id) : null;
-      const label = row?.label || (await getActiveFiscalYear()) || getCurrentFiscalYear();
-      setActiveFiscalYearLabel(label);
-      if (id != null) {
-        try {
-          await setActiveFiscalYearById(id, label);
-        } catch (_) {}
-      }
-
-      setLoaded(true);
-    };
-    loadData();
+    await getActiveFiscalYear();
+    let id = await getActiveFiscalYearId();
+    if (s.activeFiscalYearId != null && !Number.isNaN(Number(s.activeFiscalYearId))) {
+      id = Number(s.activeFiscalYearId);
+    }
+    if (id == null) {
+      const ensured = await ensureFiscalYearLabel(getCurrentFiscalYear());
+      if (ensured != null) id = ensured;
+    }
+    setActiveFiscalYearId(id);
+    const row = id != null ? await getFiscalYearRowById(id) : null;
+    const label = row?.label || (await getActiveFiscalYear()) || getCurrentFiscalYear();
+    setActiveFiscalYearLabel(label);
+    if (id != null) {
+      try {
+        await setActiveFiscalYearById(id, label);
+      } catch (_) {}
+    }
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      await hydrateFromDatabase();
+      setLoaded(true);
+    })();
+  }, [hydrateFromDatabase]);
+
+  const reloadFromDatabase = useCallback(async () => {
+    setLoaded(false);
+    try {
+      await hydrateFromDatabase();
+    } finally {
+      setLoaded(true);
+    }
+  }, [hydrateFromDatabase]);
 
   useEffect(() => {
     if (showDrawer) {
@@ -160,6 +172,7 @@ export function AppProvider({ children }) {
     deleteClientTx,
     handleFYChange,
     persistSettings,
+    reloadFromDatabase,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

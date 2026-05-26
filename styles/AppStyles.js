@@ -665,8 +665,16 @@ export default StyleSheet.create({
   },
   backupItemName: { fontSize: 15, fontWeight: "700", color: "#f1f5f9" },
   backupItemMeta: { color: "#64748b", fontSize: 12, marginTop: 6 },
-  backupOpenLink: { marginTop: 10, alignSelf: "flex-start" },
+  backupItemActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 16,
+    marginTop: 10,
+  },
+  backupOpenLink: { alignSelf: "flex-start" },
   backupOpenLinkText: { color: "#818cf8", fontSize: 13, fontWeight: "600" },
+  backupUseLinkText: { color: "#34d399", fontSize: 13, fontWeight: "700" },
   backupErrorText: { color: "#f87171", fontSize: 13, marginTop: 8 },
   backupPrivacyBox: {
     backgroundColor: "rgba(99,102,241,0.08)",
