@@ -6,7 +6,9 @@ import {
   getWorkers,
   getSuppliers,
   getStockItemsWithBalance,
+  getStockMovements,
   recordStockIssue,
+  updateStockMovement,
   upsertClient,
   deleteClient as dbDeleteClient,
 } from "../utils/db";
@@ -33,10 +35,34 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     setFormErrors({});
     setStockPreviewAmount(null);
     setShowStockItemPicker(false);
+    const today = new Date().toISOString().split("T")[0];
     if (editTx?.stockMovementId != null) {
+      let stock = stockBalances;
+      try {
+        stock = await getStockItemsWithBalance();
+        setStockBalances(stock || []);
+      } catch (_) {}
+      let movNote = editTx.note || "";
+      try {
+        const movs = await getStockMovements(editTx.stockItemId);
+        const mov = (movs || []).find((m) => Number(m.id) === Number(editTx.stockMovementId));
+        if (mov) movNote = mov.note || "";
+      } catch (_) {}
+      setForm({
+        clientId: cid,
+        editTxId: editTx.id,
+        editStockMovementId: editTx.stockMovementId,
+        txType: "expense",
+        expenseMode: "warehouse",
+        stockItemId: editTx.stockItemId,
+        stockQuantity: String(editTx.stockQuantity ?? ""),
+        editMovementQty: editTx.stockQuantity,
+        note: movNote,
+        date: editTx.date,
+      });
+      setModal("addClientTx");
       return;
     }
-    const today = new Date().toISOString().split("T")[0];
     if (editTx) {
       setForm({
         clientId: cid,
@@ -173,13 +199,14 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
 
   const selectedStockItemLabel = useMemo(() => {
     if (!form.stockItemId) return "-- اختر الصنف --";
-    const b = stockInStock.find((x) => x.item.id === form.stockItemId);
+    const b = stockBalances.find((x) => Number(x.item.id) === Number(form.stockItemId));
     if (!b) return "-- اختر الصنف --";
     return `${b.item.name} — متبقي ${fmt(b.quantity)} ${getStockUnitLabel(b.item.unit)}`;
-  }, [form.stockItemId, stockInStock]);
+  }, [form.stockItemId, stockBalances]);
 
   const isWarehouseExpense =
-    form.txType === "expense" && form.expenseMode === "warehouse" && !form.editTxId;
+    form.txType === "expense" &&
+    (form.expenseMode === "warehouse" || form.editStockMovementId != null);
 
   useEffect(() => {
     if (modal !== "addClientTx" || !isWarehouseExpense || !form.stockItemId || !form.stockQuantity) {
@@ -192,12 +219,25 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       return;
     }
     const b = stockBalances.find((x) => Number(x.item.id) === Number(form.stockItemId));
-    if (!b || qty > b.quantity) {
+    if (!b) {
+      setStockPreviewAmount(null);
+      return;
+    }
+    const extraQty = form.editStockMovementId != null ? Number(form.editMovementQty) || 0 : 0;
+    if (qty > b.quantity + extraQty) {
       setStockPreviewAmount(null);
       return;
     }
     setStockPreviewAmount(qty * (b.avgCost || 0));
-  }, [modal, isWarehouseExpense, form.stockItemId, form.stockQuantity, stockBalances]);
+  }, [
+    modal,
+    isWarehouseExpense,
+    form.stockItemId,
+    form.stockQuantity,
+    form.editStockMovementId,
+    form.editMovementQty,
+    stockBalances,
+  ]);
 
   const saveClientTx = async () => {
     const err = {};
@@ -209,7 +249,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       if (qty == null) err.stockQuantity = FORM_MSG.amount;
       if (!form.stockItemId) err.stockItemId = FORM_MSG.chooseItem;
       const b = stockBalances.find((x) => Number(x.item.id) === Number(form.stockItemId));
-      const overQty = b && qty != null && qty > b.quantity;
+      const extraQty = form.editStockMovementId != null ? Number(form.editMovementQty) || 0 : 0;
+      const overQty = b && qty != null && qty > b.quantity + extraQty;
       if (overQty) err.stockQuantity = FORM_MSG.insufficientStock;
       if (Object.keys(err).length) {
         setFormErrors(err);
@@ -217,14 +258,24 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       }
       setFormErrors({});
       try {
-        await recordStockIssue({
-          itemId: form.stockItemId,
-          clientId: form.clientId,
-          quantity: qty,
-          date,
-          note: form.note || "",
-          fiscalYearId: activeFiscalYearId,
-        });
+        if (form.editStockMovementId) {
+          await updateStockMovement({
+            movementId: form.editStockMovementId,
+            quantity: qty,
+            clientId: form.clientId,
+            date,
+            note: form.note || "",
+          });
+        } else {
+          await recordStockIssue({
+            itemId: form.stockItemId,
+            clientId: form.clientId,
+            quantity: qty,
+            date,
+            note: form.note || "",
+            fiscalYearId: activeFiscalYearId,
+          });
+        }
         await refetchClientScreen();
         setModal(null);
         setForm({});
@@ -233,7 +284,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         if (e?.message === "INSUFFICIENT_STOCK") {
           err.stockQuantity = FORM_MSG.insufficientStock;
         } else {
-          err.submit = "تعذر الصرف من المخزن";
+          err.submit = form.editStockMovementId ? "تعذر تعديل المصروف" : "تعذر الصرف من المخزن";
         }
         setFormErrors(err);
       }
@@ -271,7 +322,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         ...c,
         txs: (c.txs || []).map((t) => {
           if (String(t.id) !== String(editId)) return t;
-          return { ...tx, id: t.id };
+          return { ...t, ...tx, id: t.id };
         }),
       };
     } else {
@@ -441,14 +492,12 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                     {fmt(tx.amount)} {CURRENCY}
                   </Text>
                   <View style={styles.txItemButtons}>
-                    {tx.stockMovementId == null && (
-                      <TouchableOpacity
-                        style={styles.txEditBtn}
-                        onPress={() => openClientTx(client.id, tx.type, tx)}
-                      >
-                        <Text style={styles.txEditBtnText}>تعديل</Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      style={styles.txEditBtn}
+                      onPress={() => openClientTx(client.id, tx.type, tx)}
+                    >
+                      <Text style={styles.txEditBtnText}>تعديل</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.txDeleteBtn}
                       onPress={() => handleDeleteClientTx(client.id, tx.id)}
@@ -475,7 +524,9 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     >
       <Text style={styles.modalTitle}>
         {form.editTxId
-          ? "✏️ تعديل معاملة"
+          ? form.editStockMovementId
+            ? "✏️ تعديل مصروف من المخزن"
+            : "✏️ تعديل معاملة"
           : form.txType === "income"
             ? "💵 دفعة مستلمة"
             : "🔨 مصروف على العميل"}
@@ -547,7 +598,11 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         <>
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>الصنف من المخزن</Text>
-            {stockInStock.length === 0 ? (
+            {form.editStockMovementId ? (
+              <Text style={[styles.pickerBtnText, { color: "#818cf8" }]} numberOfLines={2}>
+                {selectedStockItemLabel}
+              </Text>
+            ) : stockInStock.length === 0 ? (
               <Text style={{ color: "#64748b", fontSize: 12 }}>
                 لا يوجد رصيد في المخزن — سجّل شراء من تبويب «المخزن» أولاً.
               </Text>

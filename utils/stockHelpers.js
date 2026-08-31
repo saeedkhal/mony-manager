@@ -2,6 +2,10 @@ import { STOCK_UNITS } from "../constants";
 
 /** @typedef {{ id: number, itemId: number, direction: 'in'|'out', quantity: number, unitPrice: number, supplierId?: number, clientId?: number, clientTxId?: number, note?: string, date: string, fiscalYearId?: number }} StockMovement */
 
+export function getStockUnitLabel(unitId) {
+  return STOCK_UNITS.find((u) => u.id === unitId)?.label || unitId || "";
+}
+
 export function displayUnitCost(item, avgCost) {
   const p = Number(item?.unitPrice);
   if (p > 0) return p;

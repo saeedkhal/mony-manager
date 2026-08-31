@@ -290,10 +290,14 @@ export default function Warehouse() {
     } catch (_) {
       supList = [];
     }
+    const b = balances.find((x) => Number(x.item.id) === Number(id));
+    const defaultPrice =
+      Number(b?.item?.unitPrice) > 0 ? b.item.unitPrice : b?.avgCost > 0 ? b.avgCost : "";
     setForm({
       stockModal: "purchase",
       itemId: id,
       supplierId: supList?.[0]?.id ?? null,
+      unitPrice: defaultPrice !== "" ? String(defaultPrice) : "",
       date: new Date().toISOString().split("T")[0],
       returnToDetail: true,
     });
@@ -398,6 +402,7 @@ export default function Warehouse() {
       stockModal: "item",
       itemName: "",
       itemUnit: STOCK_UNITS[0].id,
+      itemUnitPrice: "",
     });
     setModal("stockItem");
   };
@@ -448,6 +453,9 @@ export default function Warehouse() {
   const openEditItem = (item, fromDetail = false) => {
     if (!item) return;
     setFormErrors({});
+    const b = balances.find((x) => Number(x.item.id) === Number(item.id));
+    const price =
+      Number(item.unitPrice) > 0 ? item.unitPrice : b?.avgCost > 0 ? b.avgCost : "";
     setForm({
       stockModal: "item",
       editId: item.id,
@@ -455,6 +463,7 @@ export default function Warehouse() {
       itemName: item.name,
       itemUnit: item.unit || STOCK_UNITS[0].id,
       itemExpenseCat: item.expenseCat || "أخرى",
+      itemUnitPrice: price !== "" ? String(price) : "",
       returnToDetail: !!fromDetail,
     });
     setModal("stockItem");
@@ -583,12 +592,22 @@ export default function Warehouse() {
       setFormErrors({ itemName: "أدخل اسم الصنف" });
       return;
     }
+    const priceRaw = trimmed(form.itemUnitPrice);
+    let unitPrice = null;
+    if (priceRaw) {
+      unitPrice = parsePositiveAmount(priceRaw);
+      if (unitPrice == null) {
+        setFormErrors({ itemUnitPrice: FORM_MSG.amount });
+        return;
+      }
+    }
     try {
       await upsertStockItem({
         id: form.editId,
         name,
         unit: form.itemUnit || "count",
         expenseCat: form.itemExpenseCat || "أخرى",
+        unitPrice,
       });
       await refetch();
       if (form.returnToDetail && form.editId) {
@@ -1132,6 +1151,20 @@ export default function Warehouse() {
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>سعر الوحدة ({CURRENCY})</Text>
+          <FormTextInput
+            styles={styles}
+            placeholder="0"
+            value={form.itemUnitPrice?.toString() || ""}
+            onChangeText={(t) => {
+              setFormErrors((e) => ({ ...e, itemUnitPrice: undefined }));
+              setForm((p) => ({ ...p, itemUnitPrice: t }));
+            }}
+            keyboardType="numeric"
+            error={formErrors.itemUnitPrice}
+          />
         </View>
         <TouchableOpacity style={[styles.btn, styles.btnIncome, styles.modalSaveBtn]} onPress={saveItem}>
           <Text style={styles.btnText}>{form.editId ? "حفظ التعديلات ✓" : "حفظ الصنف ✓"}</Text>

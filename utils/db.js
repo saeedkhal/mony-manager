@@ -247,7 +247,11 @@ async function migrateStockSchema(database) {
     const itemCols = await database.getAllAsync("PRAGMA table_info(stock_items)");
     const itemColNames = new Set((itemCols || []).map((c) => c.name));
     if (!itemColNames.has("unit_price")) {
-      await database.execAsync("ALTER TABLE stock_items ADD COLUMN unit_price REAL");
+      try {
+        await database.execAsync("ALTER TABLE stock_items ADD COLUMN unit_price REAL");
+      } catch (alterErr) {
+        console.warn("migrateStockSchema unit_price:", alterErr?.message || alterErr);
+      }
     }
     const countRow = await database.getFirstAsync("SELECT COUNT(*) AS c FROM stock_items");
     if ((countRow?.c ?? 0) === 0) {
@@ -1802,8 +1806,17 @@ export async function setSettings(settings) {
 // ---------- Stock / warehouse ----------
 
 async function getStockItemsWithDb(database) {
-  const rows = await database.getAllAsync("SELECT id, name, unit, expense_cat, unit_price FROM stock_items ORDER BY name");
-  return rows.map(mapStockItemRow);
+  try {
+    const rows = await database.getAllAsync(
+      "SELECT id, name, unit, expense_cat, unit_price FROM stock_items ORDER BY name"
+    );
+    return rows.map(mapStockItemRow);
+  } catch (_) {
+    const rows = await database.getAllAsync(
+      "SELECT id, name, unit, expense_cat FROM stock_items ORDER BY name"
+    );
+    return rows.map(mapStockItemRow);
+  }
 }
 
 async function getStockMovementsWithDb(database, itemId = null) {
