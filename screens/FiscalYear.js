@@ -107,7 +107,7 @@ export default function FiscalYear() {
   };
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScreenLayout>
         <View style={styles.fiscalYearView}>
           <Text style={styles.fiscalYearTitle}>📅 السنة المالية</Text>
@@ -251,6 +251,6 @@ export default function FiscalYear() {
           <Text style={styles.btnText}>إضافة السنة ✓</Text>
         </TouchableOpacity>
       </CustomModal>
-    </>
+    </View>
   );
 }

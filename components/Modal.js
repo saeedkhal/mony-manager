@@ -1,132 +1,69 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
-  Modal,
-  Pressable,
+  BackHandler,
   ScrollView,
-  TouchableOpacity,
-  Text,
-  View,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import styles from "../styles/AppStyles";
+import { useKeyboardBottomPad } from "../hooks/useKeyboardBottomPad";
 
-export default function CustomModal({ visible, onClose, children, centered = false }) {
+/**
+ * Full-screen form page that replaces the popup overlay.
+ * Parent screens keep mounting this alongside the list; when visible it covers the screen.
+ */
+export default function CustomModal({ visible = true, onClose, children }) {
+  const insets = useSafeAreaInsets();
+  const keyboardPad = useKeyboardBottomPad();
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose?.();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
+
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardAvoid}
-        keyboardVerticalOffset={0}
+    <View style={pageStyles.fill}>
+      <ScrollView
+        style={pageStyles.flex}
+        contentContainerStyle={{
+          padding: 24,
+          paddingBottom: 24 + insets.bottom + keyboardPad,
+        }}
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        nestedScrollEnabled
       >
-        <View style={[styles.modalOverlay, centered && styles.modalOverlayCentered]}>
-          <Pressable
-            style={StyleSheet.absoluteFillObject}
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="إغلاق الخلفية"
-          />
-          <View style={styles.modalContent}>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator
-              keyboardShouldPersistTaps="always"
-              nestedScrollEnabled
-              bounces={false}
-            >
-              {children}
-            </ScrollView>
-            <View style={styles.modalCloseTopWrap} pointerEvents="box-none">
-              <TouchableOpacity
-                style={styles.modalCloseTopBtn}
-                onPress={onClose}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityRole="button"
-                accessibilityLabel="إغلاق"
-              >
-                <Text style={styles.modalCloseTopText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={styles.modalCancelBtn} onPress={onClose}>
-              <Text style={styles.modalCancelText}>إلغاء</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={[styles.clientDetailBackRow, { marginBottom: 16 }]}>
+          <TouchableOpacity style={styles.backBtn} onPress={onClose}>
+            <Text style={styles.backBtnText}>←</Text>
+            <Text style={styles.backBtnText}>رجوع</Text>
+          </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        {children}
+      </ScrollView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  keyboardAvoid: {
+const pageStyles = StyleSheet.create({
+  fill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#0f172a",
+    zIndex: 30,
+    elevation: 30,
+  },
+  flex: {
     flex: 1,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.65)",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 16,
-  },
-  modalOverlayCentered: {
-    justifyContent: "center",
-    paddingBottom: 0,
-  },
-  modalContent: {
-    backgroundColor: "#1e1b4b",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.13)",
-    borderRadius: 20,
-    padding: 28,
-    width: "100%",
-    maxWidth: 440,
-    maxHeight: "90%",
-    flexShrink: 1,
-    position: "relative",
-    zIndex: 1,
-  },
-  modalScroll: {
-    flexShrink: 1,
-  },
-  modalCloseTopWrap: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    zIndex: 2,
-  },
-  modalCloseTopBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalCloseTopText: {
-    color: "#cbd5e1",
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: -1,
-  },
-  scrollContent: {
-    paddingTop: 36,
-    paddingBottom: 12,
-  },
-  modalCancelBtn: {
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderRadius: 11,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginTop: 10,
-    width: "100%",
-    alignItems: "center",
-  },
-  modalCancelText: {
-    color: "#94a3b8",
-    fontSize: 14,
-    fontWeight: "700",
+    backgroundColor: "#0f172a",
   },
 });

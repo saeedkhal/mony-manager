@@ -207,9 +207,10 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     if (isWarehouseExpense) {
       const qty = parsePositiveAmount(form.stockQuantity);
       if (qty == null) err.stockQuantity = FORM_MSG.amount;
-      if (!form.stockItemId) err.stockItemId = "اختر الصنف";
+      if (!form.stockItemId) err.stockItemId = FORM_MSG.chooseItem;
       const b = stockBalances.find((x) => Number(x.item.id) === Number(form.stockItemId));
-      if (b && qty != null && qty > b.quantity) err.stockQuantity = "الكمية أكبر من الرصيد";
+      const overQty = b && qty != null && qty > b.quantity;
+      if (overQty) err.stockQuantity = FORM_MSG.insufficientStock;
       if (Object.keys(err).length) {
         setFormErrors(err);
         return;
@@ -229,8 +230,11 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         setForm({});
         setStockPreviewAmount(null);
       } catch (e) {
-        if (e?.message === "INSUFFICIENT_STOCK") err.stockQuantity = "رصيد غير كافٍ";
-        else err.submit = "تعذر الصرف من المخزن";
+        if (e?.message === "INSUFFICIENT_STOCK") {
+          err.stockQuantity = FORM_MSG.insufficientStock;
+        } else {
+          err.submit = "تعذر الصرف من المخزن";
+        }
         setFormErrors(err);
       }
       return;
@@ -300,14 +304,14 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const t = totals;
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
     <ScreenLayout>
       <View style={styles.clientDetail}>
       <View style={styles.clientDetailBackRow}>
         <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedClient(null)}>
           <Text style={styles.backBtnText}>←</Text>
+          <Text style={styles.backBtnText}>رجوع</Text>
         </TouchableOpacity>
-        <Text style={styles.backBtnText}> رجوع</Text>
       </View>
       <View style={styles.clientDetailHeaderStack}>
         <Text style={styles.clientDetailName} numberOfLines={2}>
@@ -798,6 +802,6 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </TouchableOpacity>
       {formErrors.submit ? <Text style={styles.fieldErrorText}>{formErrors.submit}</Text> : null}
     </CustomModal>
-    </>
+    </View>
   );
 }

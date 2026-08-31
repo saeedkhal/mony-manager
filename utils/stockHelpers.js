@@ -2,8 +2,10 @@ import { STOCK_UNITS } from "../constants";
 
 /** @typedef {{ id: number, itemId: number, direction: 'in'|'out', quantity: number, unitPrice: number, supplierId?: number, clientId?: number, clientTxId?: number, note?: string, date: string, fiscalYearId?: number }} StockMovement */
 
-export function getStockUnitLabel(unitId) {
-  return STOCK_UNITS.find((u) => u.id === unitId)?.label || unitId || "";
+export function displayUnitCost(item, avgCost) {
+  const p = Number(item?.unitPrice);
+  if (p > 0) return p;
+  return Number(avgCost) || 0;
 }
 
 /**
@@ -18,12 +20,14 @@ export function computeStockBalance(movements) {
   });
   let qty = 0;
   let totalCost = 0;
+  let receivedQty = 0;
   for (const m of sorted) {
     const q = Number(m.quantity) || 0;
     if (q <= 0) continue;
     if (m.direction === "in") {
       totalCost += q * (Number(m.unitPrice) || 0);
       qty += q;
+      receivedQty += q;
     } else if (m.direction === "out") {
       const avg = qty > 0 ? totalCost / qty : 0;
       const cost = avg * q;
@@ -32,7 +36,12 @@ export function computeStockBalance(movements) {
     }
   }
   const avgCost = qty > 0 ? totalCost / qty : 0;
-  return { quantity: Math.max(0, qty), totalCost: Math.max(0, totalCost), avgCost };
+  return {
+    quantity: Math.max(0, qty),
+    totalCost: Math.max(0, totalCost),
+    avgCost,
+    receivedQty: receivedQty || 0,
+  };
 }
 
 /**

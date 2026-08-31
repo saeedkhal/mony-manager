@@ -6,6 +6,7 @@ import {
   canIssueQuantity,
   issueCostAmount,
   getStockUnitLabel,
+  displayUnitCost,
 } from "./stockHelpers";
 
 const IS_WEB = Platform.OS === "web";
@@ -214,7 +215,8 @@ async function migrateStockSchema(database) {
         id INTEGER PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
         unit TEXT NOT NULL,
-        expense_cat TEXT NOT NULL DEFAULT 'أخرى'
+        expense_cat TEXT NOT NULL DEFAULT 'أخرى',
+        unit_price REAL
       );
       CREATE TABLE IF NOT EXISTS stock_movements (
         id INTEGER PRIMARY KEY NOT NULL,
@@ -242,6 +244,11 @@ async function migrateStockSchema(database) {
     if (!txNames.has("stock_movement_id")) {
       await database.execAsync("ALTER TABLE client_transactions ADD COLUMN stock_movement_id INTEGER");
     }
+    const itemCols = await database.getAllAsync("PRAGMA table_info(stock_items)");
+    const itemColNames = new Set((itemCols || []).map((c) => c.name));
+    if (!itemColNames.has("unit_price")) {
+      await database.execAsync("ALTER TABLE stock_items ADD COLUMN unit_price REAL");
+    }
     const countRow = await database.getFirstAsync("SELECT COUNT(*) AS c FROM stock_items");
     if ((countRow?.c ?? 0) === 0) {
       const now = Date.now();
@@ -265,11 +272,13 @@ const CLIENT_TX_SELECT =
   "id, client_id, type, amount, cat, note, date, worker_id, supplier_id, stock_item_id, stock_quantity, stock_movement_id";
 
 function mapStockItemRow(r) {
+  const price = r.unit_price != null ? r.unit_price : r.unitPrice;
   return {
     id: r.id,
     name: r.name,
     unit: r.unit,
-    expenseCat: r.expense_cat || "أخرى",
+    expenseCat: r.expense_cat || r.expenseCat || "أخرى",
+    unitPrice: price != null && price !== "" ? Number(price) : null,
   };
 }
 
@@ -658,6 +667,82 @@ export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, o
     console.warn("DB getClientsPage error:", e?.message || e);
     clearDbOnError(e);
     return { clients: [], hasMore: false };
+  }
+}
+
+export const CLIENT_SELECT_DEFAULT_LIMIT = 5;
+export const CLIENT_SELECT_MIN_CHARS = 3;
+
+/**
+ * Lightweight client picker rows (id + name only, no transactions).
+ * Empty query → newest `limit` clients. Query of 3+ chars → name contains match.
+ */
+export async function searchClientsForSelect(query = "", limit = CLIENT_SELECT_DEFAULT_LIMIT) {
+  const lim = Math.min(20, Math.max(1, Math.floor(Number(limit)) || CLIENT_SELECT_DEFAULT_LIMIT));
+  const q = typeof query === "string" ? String(query).trim() : "";
+  const useSearch = q.length >= CLIENT_SELECT_MIN_CHARS;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let all = state ? [...(state.clients || [])] : [];
+      if (useSearch) {
+        const low = q.toLowerCase();
+        all = all.filter((c) => (c.name || "").toLowerCase().includes(low));
+      }
+      all.sort((a, b) => Number(b.id) - Number(a.id));
+      return all.slice(0, lim).map((c) => ({ id: c.id, name: c.name || "" }));
+    }
+    return await runDb(async (database) => {
+      const fyId = await getActiveFiscalYearIdWithDb(database);
+      const nameClause = useSearch ? " AND instr(lower(name), lower(?)) > 0" : "";
+      let sql;
+      let params;
+      if (fyId != null) {
+        sql = `SELECT id, name FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC LIMIT ?`;
+        params = useSearch ? [fyId, q, lim] : [fyId, lim];
+      } else {
+        sql = useSearch
+          ? "SELECT id, name FROM clients WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC LIMIT ?"
+          : "SELECT id, name FROM clients ORDER BY id DESC LIMIT ?";
+        params = useSearch ? [q, lim] : [lim];
+      }
+      const rows = await database.getAllAsync(sql, ...params);
+      return (rows || []).map((r) => ({ id: r.id, name: r.name || "" }));
+    });
+  } catch (e) {
+    console.warn("DB searchClientsForSelect error:", e?.message || e);
+    return [];
+  }
+}
+
+/** Map of client id → name for the given ids. */
+export async function getClientNamesByIds(ids) {
+  const unique = [
+    ...new Set((ids || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))),
+  ];
+  if (!unique.length) return {};
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const map = {};
+      for (const c of state?.clients || []) {
+        if (unique.includes(Number(c.id))) map[c.id] = c.name || "";
+      }
+      return map;
+    }
+    return await runDb(async (database) => {
+      const ph = unique.map(() => "?").join(",");
+      const rows = await database.getAllAsync(
+        `SELECT id, name FROM clients WHERE id IN (${ph})`,
+        ...unique
+      );
+      const map = {};
+      for (const r of rows || []) map[r.id] = r.name || "";
+      return map;
+    });
+  } catch (e) {
+    console.warn("DB getClientNamesByIds error:", e?.message || e);
+    return {};
   }
 }
 
@@ -1717,7 +1802,7 @@ export async function setSettings(settings) {
 // ---------- Stock / warehouse ----------
 
 async function getStockItemsWithDb(database) {
-  const rows = await database.getAllAsync("SELECT id, name, unit, expense_cat FROM stock_items ORDER BY name");
+  const rows = await database.getAllAsync("SELECT id, name, unit, expense_cat, unit_price FROM stock_items ORDER BY name");
   return rows.map(mapStockItemRow);
 }
 
@@ -1737,7 +1822,7 @@ export async function getStockItems() {
   try {
     if (IS_WEB) {
       const state = await getWebState();
-      return state?.stockItems || [];
+      return (state?.stockItems || []).map(mapStockItemRow);
     }
     return await runDb(getStockItemsWithDb);
   } catch (e) {
@@ -1746,7 +1831,7 @@ export async function getStockItems() {
   }
 }
 
-/** @returns {Promise<Array<{ item: object, quantity: number, avgCost: number, totalValue: number }>>} */
+/** @returns {Promise<Array<{ item: object, quantity: number, avgCost: number, totalValue: number, received: number }>>} */
 export async function getStockItemsWithBalance() {
   try {
     const items = await getStockItems();
@@ -1756,11 +1841,13 @@ export async function getStockItemsWithBalance() {
       return items.map((item) => {
         const itemMovs = movements.filter((m) => Number(m.itemId) === Number(item.id));
         const bal = computeStockBalance(itemMovs);
+        const avgCost = displayUnitCost(item, bal.avgCost);
         return {
           item,
           quantity: bal.quantity,
-          avgCost: bal.avgCost,
-          totalValue: bal.totalCost,
+          avgCost,
+          totalValue: bal.quantity * avgCost,
+          received: bal.receivedQty || 0,
         };
       });
     }
@@ -1769,11 +1856,13 @@ export async function getStockItemsWithBalance() {
       return items.map((item) => {
         const itemMovs = allMovs.filter((m) => Number(m.itemId) === Number(item.id));
         const bal = computeStockBalance(itemMovs);
+        const avgCost = displayUnitCost(item, bal.avgCost);
         return {
           item,
           quantity: bal.quantity,
-          avgCost: bal.avgCost,
-          totalValue: bal.totalCost,
+          avgCost,
+          totalValue: bal.quantity * avgCost,
+          received: bal.receivedQty || 0,
         };
       });
     });
@@ -1884,6 +1973,7 @@ export async function upsertStockItem(item) {
     name: String(item.name).trim(),
     unit: item.unit || "count",
     expenseCat: item.expenseCat || "أخرى",
+    unitPrice: item.unitPrice != null && Number(item.unitPrice) > 0 ? Number(item.unitPrice) : null,
   };
   try {
     if (IS_WEB) {
@@ -1898,11 +1988,12 @@ export async function upsertStockItem(item) {
     }
     await runDb((database) =>
       database.runAsync(
-        "INSERT OR REPLACE INTO stock_items (id, name, unit, expense_cat) VALUES (?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO stock_items (id, name, unit, expense_cat, unit_price) VALUES (?, ?, ?, ?, ?)",
         row.id,
         row.name,
         row.unit,
-        row.expenseCat
+        row.expenseCat,
+        row.unitPrice
       )
     );
     return row;
@@ -2025,7 +2116,8 @@ export async function recordStockIssue({
     itemMovements = await runDb((db) => getStockMovementsWithDb(db, itemId));
   }
   if (!canIssueQuantity(itemMovements, qty)) throw new Error("INSUFFICIENT_STOCK");
-  const amount = issueCostAmount(itemMovements, qty);
+  const amount =
+    Number(item.unitPrice) > 0 ? qty * Number(item.unitPrice) : issueCostAmount(itemMovements, qty);
   const movementId = Date.now();
   const clientTxId = movementId + 1;
   const issueDate = date || new Date().toISOString().split("T")[0];
@@ -2112,6 +2204,172 @@ export async function recordStockIssue({
     console.warn("recordStockIssue:", e?.message || e);
     throw e;
   }
+}
+
+/**
+ * Update an existing stock movement. Purchase: quantity/price/supplier/date/note.
+ * Issue: quantity/client/date/note (unit price recomputed) and linked client tx.
+ */
+export async function updateStockMovement({
+  movementId,
+  quantity,
+  unitPrice,
+  supplierId,
+  clientId,
+  date,
+  note,
+}) {
+  const qty = Number(quantity);
+  if (!(qty > 0) || movementId == null) throw new Error("INVALID_INPUT");
+  const nextDate = date || new Date().toISOString().split("T")[0];
+  const nextNote = note || "";
+
+  const loadNative = async (database) => {
+    const row = await database.getFirstAsync(
+      "SELECT id, item_id, direction, quantity, unit_price, supplier_id, client_id, client_tx_id, note, date, fiscal_year_id FROM stock_movements WHERE id = ?",
+      movementId
+    );
+    return row ? mapStockMovementRow(row) : null;
+  };
+
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) throw new Error("NO_STATE");
+      const mov = (state.stockMovements || []).find((m) => String(m.id) === String(movementId));
+      if (!mov) throw new Error("NOT_FOUND");
+      const itemMovements = (state.stockMovements || []).filter(
+        (m) => Number(m.itemId) === Number(mov.itemId)
+      );
+      const item = (state.stockItems || []).find((x) => Number(x.id) === Number(mov.itemId));
+      const patched = patchStockMovement(mov, itemMovements, item, {
+        qty,
+        unitPrice,
+        supplierId,
+        clientId,
+        nextDate,
+        nextNote,
+      });
+      const stockMovements = (state.stockMovements || []).map((m) =>
+        String(m.id) === String(movementId) ? patched.mov : m
+      );
+      let clients = state.clients;
+      if (patched.clientTx) {
+        clients = (state.clients || []).map((c) => {
+          const txs = (c.txs || []).filter(
+            (t) => String(t.id) !== String(patched.clientTx.id)
+          );
+          if (String(c.id) === String(patched.clientTx.clientId)) {
+            return { ...c, txs: [...txs, patched.clientTx.tx] };
+          }
+          return { ...c, txs };
+        });
+      }
+      await setWebState({ ...state, stockMovements, clients });
+      return patched.mov;
+    }
+
+    return await runDb(async (database) => {
+      const mov = await loadNative(database);
+      if (!mov) throw new Error("NOT_FOUND");
+      const itemMovements = await getStockMovementsWithDb(database, mov.itemId);
+      const items = await getStockItemsWithDb(database);
+      const item = items.find((x) => Number(x.id) === Number(mov.itemId));
+      const patched = patchStockMovement(mov, itemMovements, item, {
+        qty,
+        unitPrice,
+        supplierId,
+        clientId,
+        nextDate,
+        nextNote,
+      });
+      await database.runAsync(
+        `UPDATE stock_movements
+         SET quantity = ?, unit_price = ?, supplier_id = ?, client_id = ?, note = ?, date = ?
+         WHERE id = ?`,
+        patched.mov.quantity,
+        patched.mov.unitPrice,
+        patched.mov.supplierId,
+        patched.mov.clientId,
+        patched.mov.note,
+        patched.mov.date,
+        movementId
+      );
+      if (patched.clientTx) {
+        const t = patched.clientTx.tx;
+        await database.runAsync(
+          `UPDATE client_transactions
+           SET client_id = ?, amount = ?, cat = ?, note = ?, date = ?, stock_quantity = ?
+           WHERE id = ?`,
+          patched.clientTx.clientId,
+          t.amount,
+          t.cat,
+          t.note,
+          t.date,
+          t.stockQuantity,
+          t.id
+        );
+      }
+      return patched.mov;
+    });
+  } catch (e) {
+    console.warn("updateStockMovement:", e?.message || e);
+    throw e;
+  }
+}
+
+function patchStockMovement(mov, itemMovements, item, { qty, unitPrice, supplierId, clientId, nextDate, nextNote }) {
+  if (mov.direction === "in") {
+    const price = Number(unitPrice);
+    if (!(price >= 0)) throw new Error("INVALID_INPUT");
+    const remaining = computeStockBalance(itemMovements).quantity - Number(mov.quantity) + qty;
+    if (remaining < -1e-9) throw new Error("WOULD_GO_NEGATIVE");
+    return {
+      mov: {
+        ...mov,
+        quantity: qty,
+        unitPrice: price,
+        supplierId: supplierId ?? null,
+        date: nextDate,
+        note: nextNote,
+      },
+      clientTx: null,
+    };
+  }
+
+  if (clientId == null) throw new Error("INVALID_INPUT");
+  const others = (itemMovements || []).filter((m) => String(m.id) !== String(mov.id));
+  if (!canIssueQuantity(others, qty)) throw new Error("INSUFFICIENT_STOCK");
+  const amount =
+    Number(item?.unitPrice) > 0 ? qty * Number(item.unitPrice) : issueCostAmount(others, qty);
+  const nextUnit = qty > 0 ? amount / qty : 0;
+  const unitLabel = getStockUnitLabel(item?.unit);
+  const noteText =
+    (nextNote ? `${nextNote} — ` : "") +
+    `من المخزن: ${qty} ${unitLabel} — ${item?.name || "صنف"}`;
+  const tx = {
+    id: mov.clientTxId,
+    type: "expense",
+    amount,
+    cat: item?.expenseCat || "أخرى",
+    note: noteText,
+    date: nextDate,
+    supplierId: mov.supplierId ?? null,
+    stockItemId: mov.itemId,
+    stockQuantity: qty,
+    stockMovementId: mov.id,
+  };
+  return {
+    mov: {
+      ...mov,
+      quantity: qty,
+      unitPrice: nextUnit,
+      clientId,
+      date: nextDate,
+      note: nextNote,
+    },
+    clientTx: mov.clientTxId != null ? { clientId, tx } : null,
+  };
 }
 
 export async function deleteStockMovement(movementId) {

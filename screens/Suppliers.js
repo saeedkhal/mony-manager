@@ -228,29 +228,29 @@ export default function Suppliers() {
 
   if (selectedSupplier) {
     return (
-      <>
+      <View style={{ flex: 1 }}>
         <SupplierDetail
           selectedSupplier={selectedSupplier}
           setSelectedSupplier={setSelectedSupplier}
         />
         {supplierModal}
-      </>
+      </View>
     );
   }
 
   if (loading && suppliers.length === 0) {
     return (
-      <>
+      <View style={{ flex: 1 }}>
         <View style={styles.suppliersView}>
           <Text style={styles.loadingText}>جاري التحميل...</Text>
         </View>
         {supplierModal}
-      </>
+      </View>
     );
   }
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScreenLayout scrollViewProps={{ onScroll: onScrollSuppliers, scrollEventThrottle: 400 }}>
         <View style={styles.suppliersView}>
           <TouchableOpacity
@@ -363,6 +363,6 @@ export default function Suppliers() {
         </View>
       </ScreenLayout>
       {supplierModal}
-    </>
+    </View>
   );
 }

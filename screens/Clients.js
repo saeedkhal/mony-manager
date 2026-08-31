@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { useRoute, useNavigation, useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { getClientsPage, getActiveFiscalYear, getActiveFiscalYearId, upsertClient } from "../utils/db";
 import { STATUS_LABELS, PROJECT_TYPES } from "../constants";
@@ -17,6 +17,7 @@ const CLIENTS_PAGE_SIZE = 5;
 export default function Clients() {
   const route = useRoute();
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
   const [formErrors, setFormErrors] = useState({});
   const [clients, setClients] = useState([]);
@@ -49,7 +50,7 @@ export default function Clients() {
   }, [route.params?.openClientId, navigation]);
 
   useEffect(() => {
-    if (!loaded || activeFiscalYearId == null) return;
+    if (!loaded || !isFocused) return;
     if (selectedClient != null) return;
     listFetchGen.current += 1;
     const gen = listFetchGen.current;
@@ -74,7 +75,7 @@ export default function Clients() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, activeFiscalYearId, selectedClient, pageOptions]);
+  }, [loaded, isFocused, activeFiscalYearId, selectedClient, pageOptions]);
 
   const loadMoreClients = useCallback(async () => {
     if (!hasMore || loadingMore || loading) return;
@@ -203,30 +204,30 @@ export default function Clients() {
 
   if (selectedClient) {
     return (
-      <>
+      <View style={{ flex: 1 }}>
         <ClientDetail
           selectedClient={selectedClient}
           setSelectedClient={setSelectedClient}
           onClientDeleted={() => setSelectedClient(null)}
         />
         {addClientModal}
-      </>
+      </View>
     );
   }
 
   if (loading) {
     return (
-      <>
+      <View style={{ flex: 1 }}>
         <View style={styles.clientsView}>
           <Text style={styles.loadingText}>جاري التحميل...</Text>
         </View>
         {addClientModal}
-      </>
+      </View>
     );
   }
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScreenLayout scrollViewProps={{ onScroll: onScrollClients, scrollEventThrottle: 400 }}>
         <View style={styles.clientsView}>
           <TouchableOpacity
@@ -332,6 +333,6 @@ export default function Clients() {
         </View>
       </ScreenLayout>
       {addClientModal}
-    </>
+    </View>
   );
 }

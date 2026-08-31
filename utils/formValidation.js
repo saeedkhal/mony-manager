@@ -6,6 +6,9 @@ export const FORM_MSG = {
   client: "اختر العميل",
   worker: "اختر الصنايعي",
   supplier: "اختر المورد",
+  chooseItem: "اختر الصنف",
+  insufficientStock: "الكمية أكبر من الرصيد المتاح في المخزن",
+  purchaseBelowIssued: "لا يمكن تقليل الشراء لأقل من الكمية المصروفة من هذا الصنف",
 };
 
 export function trimmed(v) {

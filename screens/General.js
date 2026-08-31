@@ -277,7 +277,7 @@ export default function General() {
   const fyGeneralTxs = generalTxs || [];
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScreenLayout scrollViewProps={{ onScroll: onScrollGeneral, scrollEventThrottle: 400 }}>
         <View style={styles.generalView}>
           <TouchableOpacity
@@ -534,6 +534,6 @@ export default function General() {
           <Text style={styles.btnText}>حفظ ✓</Text>
         </TouchableOpacity>
       </CustomModal>
-    </>
+    </View>
   );
 }

@@ -211,26 +211,26 @@ export default function Workers() {
 
   if (selectedWorker) {
     return (
-      <>
+      <View style={{ flex: 1 }}>
         <WorkerDetail selectedWorker={selectedWorker} setSelectedWorker={setSelectedWorker} />
         {workerModal}
-      </>
+      </View>
     );
   }
 
   if (loading && workers.length === 0) {
     return (
-      <>
+      <View style={{ flex: 1 }}>
         <View style={styles.workersView}>
           <Text style={styles.loadingText}>جاري التحميل...</Text>
         </View>
         {workerModal}
-      </>
+      </View>
     );
   }
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScreenLayout scrollViewProps={{ onScroll: onScrollWorkers, scrollEventThrottle: 400 }}>
         <View style={styles.workersView}>
           <TouchableOpacity
@@ -335,6 +335,6 @@ export default function Workers() {
         </View>
       </ScreenLayout>
       {workerModal}
-    </>
+    </View>
   );
 }

@@ -164,7 +164,7 @@ export default function GeneralIncome() {
   };
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScreenLayout scrollViewProps={{ onScroll: onScrollIncome, scrollEventThrottle: 400 }}>
         <View style={styles.generalView}>
           <TouchableOpacity
@@ -296,6 +296,6 @@ export default function GeneralIncome() {
           <Text style={styles.btnText}>حفظ ✓</Text>
         </TouchableOpacity>
       </CustomModal>
-    </>
+    </View>
   );
 }

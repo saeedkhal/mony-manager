@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
 import { getWorkers, getClients, getSuppliers, getClientWithTxs, upsertClient } from "../utils/db";
 import { CURRENCY, CLIENT_EXPENSE_CATS } from "../constants";
@@ -10,6 +10,7 @@ import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
+import ClientSearchSelect from "../components/ClientSearchSelect";
 
 export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
   const {
@@ -19,7 +20,6 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
     deleteClientTx,
     modal,
     form,
-    showClientPicker,
     setShowClientPicker,
     activeFiscalYearLabel,
   } = useApp();
@@ -27,7 +27,6 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
   const [workers, setWorkers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [txClients, setTxClients] = useState([]);
   const [txWorkers, setTxWorkers] = useState([]);
   const [txSuppliers, setTxSuppliers] = useState([]);
 
@@ -53,17 +52,15 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
   useEffect(() => {
     if (!loaded || (modal !== "addClientTx" && modal !== "addWorkerTx")) return;
     let cancelled = false;
-    Promise.all([getClients(), getWorkers(), getSuppliers()])
-      .then(([c, w, s]) => {
+    Promise.all([getWorkers(), getSuppliers()])
+      .then(([w, s]) => {
         if (!cancelled) {
-          setTxClients(c || []);
           setTxWorkers(w || []);
           setTxSuppliers(s || []);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setTxClients([]);
           setTxWorkers([]);
           setTxSuppliers([]);
         }
@@ -142,7 +139,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
     [workerStats, selectedWorker]
   );
 
-  const activeClientTxName = txClients.find((c) => c.id === form.clientId)?.name;
+  const activeClientTxName = form.clientName;
 
   if (!selectedWorker) return null;
   if (loading) {
@@ -157,14 +154,14 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
   if (!activeWorker) return null;
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScreenLayout>
         <View style={styles.workerDetail}>
           <View style={styles.clientDetailBackRow}>
             <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedWorker(null)}>
               <Text style={styles.backBtnText}>←</Text>
+              <Text style={styles.backBtnText}>رجوع</Text>
             </TouchableOpacity>
-            <Text style={styles.backBtnText}> رجوع</Text>
           </View>
           <View style={styles.clientDetailHeaderStack}>
             <Text style={styles.clientDetailName} numberOfLines={2}>
@@ -248,6 +245,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
                           setForm({
                             editTxId: tx.id,
                             clientId: tx.clientId,
+                            clientName: tx.clientName || "",
                             txType: tx.type,
                             amount: tx.amount,
                             cat: tx.cat,
@@ -450,55 +448,21 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
         <Text style={styles.modalSubtitle}>اختر العميل وأدخل تفاصيل المصروف</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>👤 العميل</Text>
-          <View style={styles.pickerContainer}>
-            <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowClientPicker((p) => !p)}>
-              <Text style={[styles.pickerBtnText, form.clientId && { color: "#818cf8" }]}>
-                {form.clientId
-                  ? txClients.find((c) => c.id === form.clientId)?.name || "-- اختر العميل --"
-                  : "-- اختر العميل --"}
-              </Text>
-              <Text style={styles.pickerBtnArrow}>▾</Text>
-            </TouchableOpacity>
-            {showClientPicker && (
-              <View style={styles.pickerDropdown}>
-                <ScrollView style={styles.pickerList} nestedScrollEnabled keyboardShouldPersistTaps="always">
-                  <TouchableOpacity
-                    style={[styles.pickerItem, !form.clientId && styles.pickerItemActive]}
-                    onPress={() => {
-                      setFormErrors((e) => ({ ...e, clientId: undefined }));
-                      setForm((p) => ({ ...p, clientId: null }));
-                      setShowClientPicker(false);
-                    }}
-                  >
-                    <Text style={[styles.pickerItemText, !form.clientId && styles.pickerItemTextActive]}>
-                      -- اختر العميل --
-                    </Text>
-                  </TouchableOpacity>
-                  {txClients.map((c) => (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[styles.pickerItem, form.clientId === c.id && styles.pickerItemActive]}
-                      onPress={() => {
-                        setFormErrors((e) => ({ ...e, clientId: undefined }));
-                        setForm((p) => ({ ...p, clientId: c.id }));
-                        setShowClientPicker(false);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.pickerItemText,
-                          form.clientId === c.id && styles.pickerItemTextActive,
-                        ]}
-                      >
-                        {c.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-          </View>
-          {formErrors.clientId ? <Text style={styles.fieldErrorText}>{formErrors.clientId}</Text> : null}
+          <ClientSearchSelect
+            styles={styles}
+            value={form.clientId}
+            selectedLabel={form.clientName || ""}
+            error={formErrors.clientId}
+            active={modal === "addWorkerTx"}
+            onChange={(c) => {
+              setFormErrors((e) => ({ ...e, clientId: undefined }));
+              setForm((p) => ({
+                ...p,
+                clientId: c?.id ?? null,
+                clientName: c?.name ?? "",
+              }));
+            }}
+          />
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>المبلغ ({CURRENCY})</Text>
@@ -539,6 +503,6 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
           <Text style={styles.btnText}>حفظ ✓</Text>
         </TouchableOpacity>
       </CustomModal>
-    </>
+    </View>
   );
 }

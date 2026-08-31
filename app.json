@@ -19,6 +19,7 @@
       "bundleIdentifier": "com.saeedkhaled.omola"
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/omola.jpg"
