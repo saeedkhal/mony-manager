@@ -3,10 +3,9 @@ import React, {
   useContext,
   useState,
   useEffect,
-  useRef,
   useCallback,
+  useMemo,
 } from "react";
-import { Animated, Dimensions } from "react-native";
 import { initState } from "../utils/storage";
 import {
   getSettings,
@@ -21,7 +20,6 @@ import {
 } from "../utils/db";
 import { getCurrentFiscalYear } from "../utils/helpers";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
@@ -31,11 +29,7 @@ export function AppProvider({ children }) {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [showClientPicker, setShowClientPicker] = useState(false);
-  const [showDrawer, setShowDrawer] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const drawerAnimation = useRef(
-    new Animated.Value(-SCREEN_WIDTH * 0.75),
-  ).current;
 
   const hydrateFromDatabase = useCallback(async () => {
     await initState();
@@ -78,32 +72,13 @@ export function AppProvider({ children }) {
     }
   }, [hydrateFromDatabase]);
 
-  useEffect(() => {
-    if (showDrawer) {
-      drawerAnimation.setValue(-SCREEN_WIDTH * 0.75);
-      Animated.timing(drawerAnimation, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [showDrawer]);
-
-  const closeDrawer = () => {
-    Animated.timing(drawerAnimation, {
-      toValue: -SCREEN_WIDTH * 0.75,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => setShowDrawer(false));
-  };
-
-  const deleteClientTx = async (cid, tid) => {
+  const deleteClientTx = useCallback(async (cid, tid) => {
     try {
       await dbDeleteClientTx(cid, tid);
     } catch (_) {}
-  };
+  }, []);
 
-  const handleFYChange = async (fiscalYearId, displayLabel = null) => {
+  const handleFYChange = useCallback(async (fiscalYearId, displayLabel = null) => {
     if (fiscalYearId == null) return;
     let label = displayLabel;
     if (label == null) {
@@ -115,9 +90,9 @@ export function AppProvider({ children }) {
     try {
       await setActiveFiscalYearById(fiscalYearId, label);
     } catch (_) {}
-  };
+  }, []);
 
-  const persistSettings = async (partial) => {
+  const persistSettings = useCallback(async (partial) => {
     const next = {
       activeFiscalYearId:
         partial.activeFiscalYearId !== undefined
@@ -151,29 +126,39 @@ export function AppProvider({ children }) {
         await dbSetSettings({ nissabPrice: partial.nissabPrice });
       } catch (_) {}
     }
-  };
+  }, [activeFiscalYearId, activeFiscalYearLabel, customFiscalYearIds]);
 
-  const value = {
-    loaded,
-    modal,
-    setModal,
-    form,
-    setForm,
-    activeFiscalYearId,
-    activeFiscalYearLabel,
-    customFiscalYearIds,
-    setCustomFiscalYearIds,
-    showClientPicker,
-    setShowClientPicker,
-    showDrawer,
-    setShowDrawer,
-    closeDrawer,
-    drawerAnimation,
-    deleteClientTx,
-    handleFYChange,
-    persistSettings,
-    reloadFromDatabase,
-  };
+  const value = useMemo(
+    () => ({
+      loaded,
+      modal,
+      setModal,
+      form,
+      setForm,
+      activeFiscalYearId,
+      activeFiscalYearLabel,
+      customFiscalYearIds,
+      setCustomFiscalYearIds,
+      showClientPicker,
+      setShowClientPicker,
+      deleteClientTx,
+      handleFYChange,
+      persistSettings,
+      reloadFromDatabase,
+    }),
+    [
+      loaded,
+      modal,
+      form,
+      activeFiscalYearId,
+      activeFiscalYearLabel,
+      customFiscalYearIds,
+      showClientPicker,
+      handleFYChange,
+      persistSettings,
+      reloadFromDatabase,
+    ],
+  );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

@@ -519,7 +519,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
                 );
               })}
               <View style={styles.stockTableFooter}>
-                <View style={[styles.stockTableCol, { flexGrow: 1, flexShrink: 1, flexBasis: 0 }]}>
+                <View style={[styles.stockTableCol, { flex: 1, minWidth: 0 }]}>
                   <Text style={[styles.stockTableCellSub, styles.stockTableCellCenter]}>له</Text>
                   <Text
                     style={[
@@ -532,7 +532,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
                     {fmt(ledger.dueTotal)} {CURRENCY}
                   </Text>
                 </View>
-                <View style={[styles.stockTableCol, { flexGrow: 1, flexShrink: 1, flexBasis: 0 }]}>
+                <View style={[styles.stockTableCol, { flex: 1, minWidth: 0 }]}>
                   <Text style={[styles.stockTableCellSub, styles.stockTableCellCenter]}>تم استلام</Text>
                   <Text
                     style={[
@@ -545,7 +545,7 @@ export default function WorkerDetail({ selectedWorker, setSelectedWorker }) {
                     {fmt(ledger.paidTotal)} {CURRENCY}
                   </Text>
                 </View>
-                <View style={[styles.stockTableCol, { flexGrow: 1, flexShrink: 1, flexBasis: 0 }]}>
+                <View style={[styles.stockTableCol, { flex: 1, minWidth: 0 }]}>
                   <Text style={[styles.stockTableCellSub, styles.stockTableCellCenter]}>
                     الباقي ({balanceLabel})
                   </Text>

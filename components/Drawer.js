@@ -1,34 +1,71 @@
-import React from "react";
-import { View, Text, TouchableOpacity, ScrollView, Pressable, Animated, StyleSheet, Dimensions } from "react-native";
+import React, { useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  Pressable,
+  Animated,
+  StyleSheet,
+  Dimensions,
+} from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 320);
+const HIDDEN_X = -DRAWER_WIDTH;
 
-export default function Drawer({ visible, onClose, navItems, activeTab, onTabChange, drawerAnimation, safeAreaBottom = 0 }) {
-  if (!visible) return null;
+export default function Drawer({
+  visible,
+  onClose,
+  navItems,
+  activeTab,
+  onTabChange,
+  safeAreaBottom = 0,
+}) {
+  const translateX = useRef(new Animated.Value(HIDDEN_X)).current;
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: visible ? 1 : 0,
+        duration: visible ? 200 : 160,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateX, {
+        toValue: visible ? 0 : HIDDEN_X,
+        duration: visible ? 220 : 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [visible, overlayOpacity, translateX]);
 
   return (
-    <Pressable style={styles.drawerOverlay} onPress={onClose}>
+    <View
+      pointerEvents={visible ? "auto" : "none"}
+      style={styles.host}
+    >
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+        <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]} />
+      </Pressable>
       <Animated.View
         style={[
           styles.drawerContent,
-          { bottom: safeAreaBottom, transform: [{ translateX: drawerAnimation }] },
+          { bottom: safeAreaBottom, transform: [{ translateX }] },
         ]}
       >
         <View style={styles.drawerHeader}>
           <Text style={styles.drawerTitle}>القائمة</Text>
-          <TouchableOpacity onPress={onClose}>
+          <TouchableOpacity onPress={onClose} hitSlop={12}>
             <Text style={styles.drawerClose}>✕</Text>
           </TouchableOpacity>
         </View>
-        <ScrollView style={styles.drawerList}>
+        <ScrollView style={styles.drawerList} keyboardShouldPersistTaps="handled">
           {navItems.map(([k, ic, l]) => (
             <TouchableOpacity
               key={k}
               style={[styles.drawerItem, activeTab === k && styles.drawerItemActive]}
-              onPress={() => {
-                onTabChange(k);
-                onClose();
-              }}
+              onPress={() => onTabChange(k)}
             >
               <Text style={styles.drawerItemIcon}>{ic}</Text>
               <Text style={[styles.drawerItemText, activeTab === k && styles.drawerItemTextActive]}>
@@ -38,27 +75,25 @@ export default function Drawer({ visible, onClose, navItems, activeTab, onTabCha
           ))}
         </ScrollView>
       </Animated.View>
-    </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  drawerOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
+  host: {
+    ...StyleSheet.absoluteFillObject,
     zIndex: 9999,
     elevation: 9999,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
   drawerContent: {
     position: "absolute",
     top: 24,
     right: 0,
-    width: SCREEN_WIDTH * 0.75,
-    maxWidth: 320,
+    width: DRAWER_WIDTH,
     backgroundColor: "#1e1b4b",
     borderLeftWidth: 1,
     borderLeftColor: "rgba(255,255,255,0.1)",
@@ -66,8 +101,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: -2, height: 0 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
-    zIndex: 10000,
-    elevation: 10000,
+    elevation: 16,
   },
   drawerHeader: {
     flexDirection: "row",

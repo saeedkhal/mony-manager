@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { View, Text, TouchableOpacity, ScrollView, Pressable, StyleSheet, BackHandler } from "react-native";
 import { useApp } from "../context/AppContext";
 import {
   getClientWithTxs,
@@ -22,6 +22,9 @@ import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
 
+const TX_PAGE_SIZE = 5;
+const CLIENT_INCOME_CATS = ["مقدم", "دفعة", "رصيد نهائي", "أخرى"];
+
 export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted, onEditClient, reloadToken }) {
   const { activeFiscalYearId, activeFiscalYearLabel, deleteClientTx, setForm, setModal, modal, form } =
     useApp();
@@ -30,11 +33,20 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const [stockBalances, setStockBalances] = useState([]);
   const [stockPreviewAmount, setStockPreviewAmount] = useState(null);
   const [showStockItemPicker, setShowStockItemPicker] = useState(false);
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const [showWorkerPicker, setShowWorkerPicker] = useState(false);
+  const [txPage, setTxPage] = useState(0);
+  const [rowMenuId, setRowMenuId] = useState(null);
+  const [rowMenuPos, setRowMenuPos] = useState(null);
+  const menuBtnRefs = useRef({});
+  const listRootRef = useRef(null);
 
   const openClientTx = async (cid, txType, editTx = null) => {
     setFormErrors({});
     setStockPreviewAmount(null);
     setShowStockItemPicker(false);
+    setShowCatPicker(false);
+    setShowWorkerPicker(false);
     const today = new Date().toISOString().split("T")[0];
     if (editTx?.stockMovementId != null) {
       let stock = stockBalances;
@@ -190,9 +202,74 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
     return { income, expense, profit: income - expense, orderAmount, remaining };
   }, [client]);
 
-  const getWorkerName = (id) => workers.find((w) => w.id === id)?.name || "غير محدد";
-  const getSupplierName = (id) => suppliers.find((s) => s.id === id)?.name || "غير محدد";
-  const getStockItemName = (id) => stockBalances.find((b) => b.item.id === id)?.item?.name || "";
+  const sortedTxs = useMemo(() => {
+    return [...(client?.txs || [])].sort((a, b) => {
+      const d = String(b.date || "").localeCompare(String(a.date || ""));
+      if (d !== 0) return d;
+      return String(b.id).localeCompare(String(a.id));
+    });
+  }, [client]);
+
+  const txPageCount = Math.max(1, Math.ceil(sortedTxs.length / TX_PAGE_SIZE));
+
+  useEffect(() => {
+    setTxPage(0);
+    setRowMenuId(null);
+    setRowMenuPos(null);
+  }, [selectedClient]);
+
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(sortedTxs.length / TX_PAGE_SIZE) - 1);
+    if (txPage > maxPage) setTxPage(maxPage);
+  }, [sortedTxs.length, txPage]);
+
+  const pagedTxs = useMemo(() => {
+    const start = txPage * TX_PAGE_SIZE;
+    return sortedTxs.slice(start, start + TX_PAGE_SIZE);
+  }, [sortedTxs, txPage]);
+
+  const closeRowMenu = () => {
+    setRowMenuId(null);
+    setRowMenuPos(null);
+  };
+
+  useEffect(() => {
+    if (rowMenuId == null) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      closeRowMenu();
+      return true;
+    });
+    return () => sub.remove();
+  }, [rowMenuId]);
+
+  const openRowMenu = (tx) => {
+    if (!tx) return;
+    if (String(rowMenuId) === String(tx.id)) {
+      closeRowMenu();
+      return;
+    }
+    const btn = menuBtnRefs.current[tx.id];
+    const root = listRootRef.current;
+    const place = (x, y, w, h) => {
+      setRowMenuId(tx.id);
+      setRowMenuPos({ x, y, w, h, tx });
+    };
+    requestAnimationFrame(() => {
+      if (!btn || typeof btn.measureInWindow !== "function") {
+        place(12, 80, 32, 32);
+        return;
+      }
+      if (root && typeof root.measureInWindow === "function") {
+        root.measureInWindow((rx, ry) => {
+          btn.measureInWindow((bx, by, bw, bh) => {
+            place(bx - (rx || 0), by - (ry || 0), bw, bh);
+          });
+        });
+        return;
+      }
+      btn.measureInWindow((x, y, w, h) => place(x, y, w, h));
+    });
+  };
 
   const stockInStock = useMemo(
     () => stockBalances.filter((b) => b.quantity > 0),
@@ -357,7 +434,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const t = totals;
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1 }} ref={listRootRef}>
     <ScreenLayout>
       <View style={styles.clientDetail}>
       <View style={styles.clientDetailBackRow}>
@@ -391,7 +468,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
             style={[styles.txEditBtn, styles.clientDetailHeaderBtn]}
             onPress={() => onEditClient?.(client)}
           >
-            <Text style={styles.txEditBtnText}>تعديل البيانات</Text>
+            <Text style={styles.txEditBtnText}>تعديل</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.deleteBtn, styles.clientDetailHeaderBtn]}
@@ -400,7 +477,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
               onClientDeleted?.();
             }}
           >
-            <Text style={styles.deleteBtnText}>حذف العميل</Text>
+            <Text style={styles.deleteBtnText}>حذف</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -456,84 +533,122 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </View>
 
       <View>
-        {(client.txs || []).length === 0 ? (
+        {sortedTxs.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>📭</Text>
             <Text style={styles.emptyText}>لا توجد معاملات</Text>
           </View>
         ) : (
-          <View style={styles.txList}>
-            {[...(client.txs || [])].reverse().map((tx) => (
-              <View
-                key={tx.id}
-                style={[
-                  styles.txItemStack,
-                  { borderColor: tx.type === "income" ? "rgba(99,102,241,0.3)" : "rgba(251,146,60,0.3)" },
-                ]}
-              >
-                <View style={styles.txItemRow}>
-                  <Text style={styles.txIcon}>{tx.type === "income" ? "💵" : "🔨"}</Text>
-                  <View
-                    style={[
-                      styles.tag,
-                      {
-                        backgroundColor: tx.type === "income" ? "rgba(99,102,241,0.2)" : "rgba(251,146,60,0.2)",
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.tagText, { color: tx.type === "income" ? "#818cf8" : "#fb923c" }]}>
-                      {tx.cat}
+          <View style={styles.stockTableCard}>
+            <View style={styles.stockTableHeader}>
+              <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                <Text style={styles.stockTableHeaderText} numberOfLines={1}>
+                  الحركة
+                </Text>
+              </View>
+              <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                  التاريخ
+                </Text>
+              </View>
+              <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                  المبلغ
+                </Text>
+              </View>
+              <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
+                <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                  {" "}
+                </Text>
+              </View>
+            </View>
+            {pagedTxs.map((tx, index) => {
+              const isIncome = tx.type === "income";
+              const isLast = index === pagedTxs.length - 1;
+              return (
+                <View
+                  key={tx.id}
+                  style={[
+                    styles.stockTableRow,
+                    index % 2 === 1 && styles.stockTableRowAlt,
+                    isLast && txPageCount <= 1 && styles.stockTableRowLast,
+                  ]}
+                >
+                  <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                    <Text
+                      style={[styles.stockTableCellName, { color: isIncome ? "#818cf8" : "#fb923c" }]}
+                      numberOfLines={1}
+                    >
+                      {tx.cat || (isIncome ? "دفعة" : "مصروف")}
                     </Text>
                   </View>
-                  <Text style={styles.txDate}>{tx.date}</Text>
-                </View>
-                <View style={styles.txTags}>
-                  {tx.workerId && (
-                    <View style={[styles.tag, { backgroundColor: "rgba(245,158,11,0.2)" }]}>
-                      <Text style={[styles.tagText, { color: "#f59e0b" }]}>👷 {getWorkerName(tx.workerId)}</Text>
-                    </View>
-                  )}
-                  {tx.supplierId && (
-                    <View style={[styles.tag, { backgroundColor: "rgba(139,92,246,0.2)" }]}>
-                      <Text style={[styles.tagText, { color: "#a78bfa" }]}>🏭 {getSupplierName(tx.supplierId)}</Text>
-                    </View>
-                  )}
-                  {tx.stockItemId != null && tx.stockQuantity != null && (
-                    <View style={[styles.tag, { backgroundColor: "rgba(99,102,241,0.2)" }]}>
-                      <Text style={[styles.tagText, { color: "#818cf8" }]}>
-                        📦 {getStockItemName(tx.stockItemId)} — {tx.stockQuantity}
-                      </Text>
-                    </View>
-                  )}
-                  {tx.note ? <Text style={styles.txNote}>{tx.note}</Text> : null}
-                </View>
-                <View style={styles.txItemActionsRow}>
-                  <Text
-                    style={[
-                      styles.txAmount,
-                      { color: tx.type === "income" ? "#818cf8" : "#fb923c", minWidth: undefined },
-                    ]}
-                  >
-                    {tx.type === "income" ? "+" : "-"}
-                    {fmt(tx.amount)} {CURRENCY}
-                  </Text>
-                  <View style={styles.txItemButtons}>
-                    <TouchableOpacity
-                      style={styles.txEditBtn}
-                      onPress={() => openClientTx(client.id, tx.type, tx)}
+                  <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                    <Text style={[styles.stockTableCell, styles.stockTableCellCenter]} numberOfLines={1}>
+                      {tx.date || "—"}
+                    </Text>
+                  </View>
+                  <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                    <Text
+                      style={[
+                        styles.stockTableCell,
+                        styles.stockTableCellCenter,
+                        { color: isIncome ? "#818cf8" : "#fb923c" },
+                      ]}
+                      numberOfLines={1}
                     >
-                      <Text style={styles.txEditBtnText}>تعديل</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.txDeleteBtn}
-                      onPress={() => handleDeleteClientTx(client.id, tx.id)}
+                      {isIncome ? "+" : "-"}
+                      {fmt(tx.amount)} {CURRENCY}
+                    </Text>
+                  </View>
+                  <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
+                    <View
+                      collapsable={false}
+                      ref={(el) => {
+                        if (el) menuBtnRefs.current[tx.id] = el;
+                        else delete menuBtnRefs.current[tx.id];
+                      }}
                     >
-                      <Text style={styles.txDeleteBtnText}>حذف</Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity style={styles.stockMenuBtn} onPress={() => openRowMenu(tx)}>
+                        <Text style={styles.stockMenuBtnText}>⋮</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
+              );
+            })}
+            {txPageCount > 1 ? (
+              <View style={styles.stockTablePager}>
+                <TouchableOpacity
+                  style={[
+                    styles.stockTablePagerBtn,
+                    txPage === 0 && styles.stockTablePagerBtnDisabled,
+                  ]}
+                  onPress={() => {
+                    closeRowMenu();
+                    setTxPage((p) => Math.max(0, p - 1));
+                  }}
+                  disabled={txPage === 0}
+                >
+                  <Text style={styles.stockTablePagerBtnText}>السابق</Text>
+                </TouchableOpacity>
+                <Text style={styles.stockTablePagerInfo}>
+                  صفحة {txPage + 1} من {txPageCount}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.stockTablePagerBtn,
+                    txPage >= txPageCount - 1 && styles.stockTablePagerBtnDisabled,
+                  ]}
+                  onPress={() => {
+                    closeRowMenu();
+                    setTxPage((p) => Math.min(txPageCount - 1, p + 1));
+                  }}
+                  disabled={txPage >= txPageCount - 1}
+                >
+                  <Text style={styles.stockTablePagerBtnText}>التالي</Text>
+                </TouchableOpacity>
               </View>
-            ))}
+            ) : null}
           </View>
         )}
       </View>
@@ -546,6 +661,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         setModal(null);
         setStockPreviewAmount(null);
         setShowStockItemPicker(false);
+        setShowCatPicker(false);
+        setShowWorkerPicker(false);
       }}
     >
       <Text style={styles.modalTitle}>
@@ -749,64 +866,110 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </View>
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>الفئة</Text>
-        <View style={styles.optionsGrid}>
-          {(form.txType === "income"
-            ? ["مقدم", "دفعة", "رصيد نهائي", "أخرى"]
-            : CLIENT_EXPENSE_CATS
-          ).map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[
-                styles.optionBtn,
-                form.cat === cat && styles.optionBtnActive,
-                form.txType === "income" && form.cat === cat && { backgroundColor: "#6366f1" },
-                form.txType === "expense" && form.cat === cat && { backgroundColor: "#f43f5e" },
-              ]}
-              onPress={() => {
-                setFormErrors((e) => ({ ...e, workerId: undefined, supplierId: undefined }));
-                setForm((p) => ({ ...p, cat, workerId: undefined, supplierId: undefined }));
-              }}
-            >
-              <Text style={[styles.optionBtnText, form.cat === cat && styles.optionBtnTextActive]}>
-                {cat}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {form.editTxId ? (
+          <SimpleSelect
+            value={form.cat}
+            placeholder="اختر الفئة"
+            open={showCatPicker}
+            onToggle={() => {
+              setShowWorkerPicker(false);
+              setShowStockItemPicker(false);
+              setShowCatPicker((p) => !p);
+            }}
+            options={(form.txType === "income" ? CLIENT_INCOME_CATS : CLIENT_EXPENSE_CATS).map((cat) => ({
+              key: cat,
+              label: cat,
+              selected: form.cat === cat,
+            }))}
+            onSelect={(opt) => {
+              setFormErrors((e) => ({ ...e, workerId: undefined, supplierId: undefined }));
+              setForm((p) => ({ ...p, cat: opt.key, workerId: undefined, supplierId: undefined }));
+              setShowCatPicker(false);
+            }}
+          />
+        ) : (
+          <View style={styles.optionsGrid}>
+            {(form.txType === "income" ? CLIENT_INCOME_CATS : CLIENT_EXPENSE_CATS).map((cat) => (
+              <TouchableOpacity
+                key={cat}
+                style={[
+                  styles.optionBtn,
+                  form.cat === cat && styles.optionBtnActive,
+                  form.txType === "income" && form.cat === cat && { backgroundColor: "#6366f1" },
+                  form.txType === "expense" && form.cat === cat && { backgroundColor: "#f43f5e" },
+                ]}
+                onPress={() => {
+                  setFormErrors((e) => ({ ...e, workerId: undefined, supplierId: undefined }));
+                  setForm((p) => ({ ...p, cat, workerId: undefined, supplierId: undefined }));
+                }}
+              >
+                <Text style={[styles.optionBtnText, form.cat === cat && styles.optionBtnTextActive]}>
+                  {cat}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
         </>
       )}
       {form.txType === "expense" && !isWarehouseExpense && form.cat === "مصنعية" && workers.length > 0 && (
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>👷 الصنايعي</Text>
-          <View style={styles.optionsGrid}>
-            {workers.map((w) => (
-              <TouchableOpacity
-                key={w.id}
-                style={[
-                  styles.optionBtn,
-                  form.workerId === w.id && {
-                    backgroundColor: "rgba(245,158,11,0.3)",
-                    borderColor: "#f59e0b",
-                  },
-                ]}
-                onPress={() => {
-                  setFormErrors((e) => ({ ...e, workerId: undefined }));
-                  setForm((p) => ({ ...p, workerId: w.id }));
-                }}
-              >
-                <Text
+          {form.editTxId ? (
+            <SimpleSelect
+              value={workers.find((w) => w.id === form.workerId)?.name}
+              placeholder="اختر الصنايعي"
+              error={formErrors.workerId}
+              open={showWorkerPicker}
+              onToggle={() => {
+                setShowCatPicker(false);
+                setShowStockItemPicker(false);
+                setShowWorkerPicker((p) => !p);
+              }}
+              options={workers.map((w) => ({
+                key: w.id,
+                label: w.name,
+                selected: String(form.workerId) === String(w.id),
+              }))}
+              onSelect={(opt) => {
+                setFormErrors((e) => ({ ...e, workerId: undefined }));
+                setForm((p) => ({ ...p, workerId: opt.key }));
+                setShowWorkerPicker(false);
+              }}
+            />
+          ) : (
+            <View style={styles.optionsGrid}>
+              {workers.map((w) => (
+                <TouchableOpacity
+                  key={w.id}
                   style={[
-                    styles.optionBtnText,
-                    form.workerId === w.id && { color: "#f59e0b", fontWeight: "700" },
+                    styles.optionBtn,
+                    form.workerId === w.id && {
+                      backgroundColor: "rgba(245,158,11,0.3)",
+                      borderColor: "#f59e0b",
+                    },
                   ]}
+                  onPress={() => {
+                    setFormErrors((e) => ({ ...e, workerId: undefined }));
+                    setForm((p) => ({ ...p, workerId: w.id }));
+                  }}
                 >
-                  {w.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {formErrors.workerId ? <Text style={styles.fieldErrorText}>{formErrors.workerId}</Text> : null}
+                  <Text
+                    style={[
+                      styles.optionBtnText,
+                      form.workerId === w.id && { color: "#f59e0b", fontWeight: "700" },
+                    ]}
+                  >
+                    {w.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {formErrors.workerId && !form.editTxId ? (
+            <Text style={styles.fieldErrorText}>{formErrors.workerId}</Text>
+          ) : null}
         </View>
       )}
       {form.txType === "expense" &&
@@ -883,6 +1046,89 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       </TouchableOpacity>
       {formErrors.submit ? <Text style={styles.fieldErrorText}>{formErrors.submit}</Text> : null}
     </CustomModal>
+      {rowMenuPos?.tx ? (
+        <View style={rowMenuOverlayStyles.layer} pointerEvents="box-none">
+          <Pressable style={rowMenuOverlayStyles.backdrop} onPress={closeRowMenu} />
+          <View
+            style={[
+              styles.stockRowMenu,
+              {
+                top: rowMenuPos.y + rowMenuPos.h + 4,
+                left: rowMenuPos.x,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.stockRowMenuItem}
+              onPress={() => {
+                const tx = rowMenuPos.tx;
+                closeRowMenu();
+                openClientTx(client.id, tx.type, tx);
+              }}
+            >
+              <Text style={[styles.stockRowMenuItemText, { color: "#fbbf24" }]}>تعديل</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.stockRowMenuItem}
+              onPress={() => {
+                const tx = rowMenuPos.tx;
+                closeRowMenu();
+                handleDeleteClientTx(client.id, tx.id);
+              }}
+            >
+              <Text style={[styles.stockRowMenuItemText, { color: "#f43f5e" }]}>مسح</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const rowMenuOverlayStyles = StyleSheet.create({
+  layer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
+    direction: "ltr",
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+});
+
+function SimpleSelect({ value, placeholder, error, open, onToggle, options, onSelect }) {
+  return (
+    <View>
+      <View style={[styles.pickerContainer, open && { zIndex: 20 }]}>
+        <TouchableOpacity
+          style={[styles.pickerBtn, error ? styles.inputError : null]}
+          onPress={onToggle}
+        >
+          <Text style={[styles.pickerBtnText, value ? { color: "#818cf8" } : null]} numberOfLines={1}>
+            {value || placeholder}
+          </Text>
+          <Text style={styles.pickerBtnArrow}>▾</Text>
+        </TouchableOpacity>
+        {open ? (
+          <View style={styles.pickerDropdown}>
+            <ScrollView style={styles.pickerList} nestedScrollEnabled keyboardShouldPersistTaps="always">
+              {options.map((opt) => (
+                <TouchableOpacity
+                  key={String(opt.key)}
+                  style={[styles.pickerItem, opt.selected && styles.pickerItemActive]}
+                  onPress={() => onSelect(opt)}
+                >
+                  <Text style={[styles.pickerItemText, opt.selected && styles.pickerItemTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
+      {error ? <Text style={styles.fieldErrorText}>{error}</Text> : null}
     </View>
   );
 }
