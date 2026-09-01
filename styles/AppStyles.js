@@ -320,7 +320,7 @@ export default StyleSheet.create({
     paddingHorizontal: 11,
   },
   txDeleteBtnText: { color: "#f43f5e", fontSize: 12 },
-  workersView: { gap: 16 },
+  workersView: { gap: 16, flexGrow: 0 },
   workersGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   workerCard: {
     backgroundColor: "rgba(255,255,255,0.04)",
@@ -743,6 +743,8 @@ export default StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden",
     marginBottom: 8,
+    flexGrow: 0,
+    alignSelf: "stretch",
   },
   stockTableHeader: {
     flexDirection: "row",
@@ -794,6 +796,8 @@ export default StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  stockTableColPhone: { flexGrow: 1.2, flexShrink: 1, flexBasis: 0, alignItems: "center" },
+  stockTableColMoney: { flexGrow: 0.85, flexShrink: 1, flexBasis: 0, alignItems: "center" },
   stockTableHeaderText: {
     color: "#c4b5fd",
     fontSize: 11,

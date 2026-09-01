@@ -23,7 +23,7 @@ export default function ScreenLayout({ children, contentContainerStyle, scrollVi
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={[
-            { padding: 24, paddingBottom: 24 + insets.bottom + keyboardPad },
+            { padding: 24, paddingBottom: 24 + insets.bottom + keyboardPad, flexGrow: 0 },
             contentContainerStyle,
             extraContentStyle,
           ]}

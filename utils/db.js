@@ -1100,13 +1100,12 @@ function mapWorkerRow(r) {
 
 /**
  * Paginated workers, newest first (`ORDER BY id DESC`).
- * @param {{ nameContains?: string }} [options] — optional case-insensitive substring match on `name`
- * @returns {Promise<{ workers: Array<object>, hasMore: boolean }>}
+ * @param {{ nameContains?: string }} [options] — optional substring match on name or phone
+ * @returns {Promise<{ workers: Array<object>, hasMore: boolean, total: number }>}
  */
 export async function getWorkersPage(limit = WORKERS_PAGE_DEFAULT, offset = 0, options = {}) {
   const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || WORKERS_PAGE_DEFAULT));
   const off = Math.max(0, Math.floor(Number(offset)) || 0);
-  const take = lim + 1;
   const nameQ =
     typeof options.nameContains === "string" ? String(options.nameContains).trim() : "";
   const useNameFilter = nameQ.length > 0;
@@ -1115,41 +1114,40 @@ export async function getWorkersPage(limit = WORKERS_PAGE_DEFAULT, offset = 0, o
       const state = await getWebState();
       let all = [...(state?.workers || [])];
       if (useNameFilter) {
-        const low = nameQ.toLowerCase();
-        all = all.filter((w) => (w.name || "").toLowerCase().includes(low));
+        all = all.filter((w) => clientMatchesNameOrPhone(w, nameQ));
       }
       all.sort((a, b) => Number(b.id) - Number(a.id));
-      const slice = all.slice(off, off + take);
-      const hasMore = slice.length > lim;
-      const rows = hasMore ? slice.slice(0, lim) : slice;
+      const rows = all.slice(off, off + lim);
       return {
         workers: rows.map((w) => ({
           id: w.id,
           name: w.name || "",
           phone: w.phone || "",
         })),
-        hasMore,
+        hasMore: off + rows.length < all.length,
+        total: all.length,
       };
     }
     return await runDb(async (database) => {
-      const sqlBase = useNameFilter
-        ? "SELECT id, name, phone FROM workers WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC"
-        : "SELECT id, name, phone FROM workers ORDER BY id DESC";
-      const baseParams = useNameFilter ? [nameQ] : [];
-      const rows = await database.getAllAsync(
-        `${sqlBase} LIMIT ? OFFSET ?`,
-        ...baseParams,
-        take,
-        off
-      );
-      const hasMore = rows.length > lim;
-      const pageRows = hasMore ? rows.slice(0, lim) : rows;
-      return { workers: pageRows.map((r) => mapWorkerRow(r)), hasMore };
+      const searchClause = useNameFilter ? ` WHERE ${CLIENT_SEARCH_NAME_OR_PHONE}` : "";
+      const sqlBase = `SELECT id, name, phone FROM workers${searchClause} ORDER BY id DESC`;
+      const countSql = `SELECT COUNT(*) AS n FROM workers${searchClause}`;
+      const baseParams = useNameFilter ? [nameQ, nameQ] : [];
+      const [countRow, rows] = await Promise.all([
+        database.getFirstAsync(countSql, ...baseParams),
+        database.getAllAsync(`${sqlBase} LIMIT ? OFFSET ?`, ...baseParams, lim, off),
+      ]);
+      const total = Number(countRow?.n) || 0;
+      return {
+        workers: (rows || []).map((r) => mapWorkerRow(r)),
+        hasMore: off + (rows || []).length < total,
+        total,
+      };
     });
   } catch (e) {
     console.warn("DB getWorkersPage error:", e?.message || e);
     clearDbOnError(e);
-    return { workers: [], hasMore: false };
+    return { workers: [], hasMore: false, total: 0 };
   }
 }
 

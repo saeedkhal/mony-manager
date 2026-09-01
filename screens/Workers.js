@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { View, Text, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, BackHandler } from "react-native";
 import { useApp } from "../context/AppContext";
 import {
   getWorkersPage,
@@ -22,26 +22,91 @@ const WORKERS_PAGE_SIZE = 5;
 export default function Workers() {
   const { loaded, modal, setForm, setModal, form } = useApp();
   const [formErrors, setFormErrors] = useState({});
-
   const [workers, setWorkers] = useState([]);
+  const [workerTotal, setWorkerTotal] = useState(0);
+  const [workerPage, setWorkerPage] = useState(0);
   const [expenseStatsMap, setExpenseStatsMap] = useState({});
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
+  const [rowMenuId, setRowMenuId] = useState(null);
+  const [rowMenuPos, setRowMenuPos] = useState(null);
   const listFetchGen = useRef(0);
-  const workersRef = useRef([]);
+  const menuBtnRefs = useRef({});
+  const listRootRef = useRef(null);
 
   const pageOptions = useMemo(
     () => (appliedSearch ? { nameContains: appliedSearch } : {}),
     [appliedSearch]
   );
+  const workerPageCount = Math.max(1, Math.ceil((workerTotal || 0) / WORKERS_PAGE_SIZE));
 
   useEffect(() => {
-    workersRef.current = workers;
-  }, [workers]);
+    setWorkerPage(0);
+  }, [appliedSearch]);
+
+  const closeRowMenu = () => {
+    setRowMenuId(null);
+    setRowMenuPos(null);
+  };
+
+  useEffect(() => {
+    if (rowMenuId == null) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      closeRowMenu();
+      return true;
+    });
+    return () => sub.remove();
+  }, [rowMenuId]);
+
+  const openRowMenu = (worker) => {
+    if (!worker) return;
+    if (Number(rowMenuId) === Number(worker.id)) {
+      closeRowMenu();
+      return;
+    }
+    const btn = menuBtnRefs.current[worker.id];
+    const root = listRootRef.current;
+    const place = (x, y, w, h) => {
+      setRowMenuId(worker.id);
+      setRowMenuPos({ x, y, w, h, worker });
+    };
+    requestAnimationFrame(() => {
+      if (!btn || typeof btn.measureInWindow !== "function") {
+        place(12, 80, 32, 32);
+        return;
+      }
+      if (root && typeof root.measureInWindow === "function") {
+        root.measureInWindow((rx, ry) => {
+          btn.measureInWindow((bx, by, bw, bh) => {
+            place(bx - (rx || 0), by - (ry || 0), bw, bh);
+          });
+        });
+        return;
+      }
+      btn.measureInWindow((x, y, w, h) => place(x, y, w, h));
+    });
+  };
+
+  const refreshWorkers = async (page, gen) => {
+    const offset = page * WORKERS_PAGE_SIZE;
+    const [{ workers: rows, total }, stats] = await Promise.all([
+      getWorkersPage(WORKERS_PAGE_SIZE, offset, pageOptions),
+      getWorkerExpenseStatsMap(),
+    ]);
+    if (gen != null && gen !== listFetchGen.current) return;
+    const n = Number(total) || 0;
+    const maxPage = Math.max(0, Math.ceil(n / WORKERS_PAGE_SIZE) - 1);
+    if (page > maxPage) {
+      setWorkerPage(maxPage);
+      setWorkerTotal(n);
+      return;
+    }
+    setWorkers(rows || []);
+    setWorkerTotal(n);
+    setExpenseStatsMap(stats && typeof stats === "object" ? stats : {});
+  };
 
   useEffect(() => {
     if (!loaded || selectedWorker != null) return;
@@ -49,23 +114,12 @@ export default function Workers() {
     const gen = listFetchGen.current;
     let cancelled = false;
     setLoading(true);
-    setWorkers([]);
-    setHasMore(true);
-    setExpenseStatsMap({});
-    Promise.all([
-      getWorkersPage(WORKERS_PAGE_SIZE, 0, pageOptions),
-      getWorkerExpenseStatsMap(),
-    ])
-      .then(([{ workers: first, hasMore: hm }, stats]) => {
-        if (cancelled || gen !== listFetchGen.current) return;
-        setWorkers(first || []);
-        setHasMore(!!hm);
-        setExpenseStatsMap(stats && typeof stats === "object" ? stats : {});
-      })
+    closeRowMenu();
+    refreshWorkers(workerPage, gen)
       .catch(() => {
         if (cancelled || gen !== listFetchGen.current) return;
         setWorkers([]);
-        setHasMore(false);
+        setWorkerTotal(0);
         setExpenseStatsMap({});
       })
       .finally(() => {
@@ -74,46 +128,20 @@ export default function Workers() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, selectedWorker, pageOptions]);
-
-  const loadMoreWorkers = useCallback(async () => {
-    if (!hasMore || loadingMore || loading || selectedWorker != null) return;
-    const gen = listFetchGen.current;
-    const offset = workersRef.current.length;
-    setLoadingMore(true);
-    try {
-      const { workers: next, hasMore: hm } = await getWorkersPage(
-        WORKERS_PAGE_SIZE,
-        offset,
-        pageOptions
-      );
-      if (gen !== listFetchGen.current) return;
-      setWorkers((prev) => [...prev, ...(next || [])]);
-      setHasMore(!!hm);
-    } catch (_) {
-      if (gen === listFetchGen.current) setHasMore(false);
-    } finally {
-      if (gen === listFetchGen.current) setLoadingMore(false);
-    }
-  }, [hasMore, loadingMore, loading, selectedWorker, pageOptions]);
-
-  const onScrollWorkers = useCallback(
-    (e) => {
-      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-      const threshold = 120;
-      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold) {
-        loadMoreWorkers();
-      }
-    },
-    [loadMoreWorkers]
-  );
+  }, [loaded, selectedWorker, pageOptions, workerPage]);
 
   const workerStats = useMemo(() => {
     return (workers || []).map((w) => {
       const st = expenseStatsMap[String(w.id)] || { total: 0, count: 0 };
-      return { ...w, total: st.total, count: st.count, txs: [] };
+      return { ...w, total: st.total, count: st.count };
     });
   }, [workers, expenseStatsMap]);
+
+  const openEditWorker = (w) => {
+    setFormErrors({});
+    setForm({ editId: w.id, name: w.name, phone: w.phone || "" });
+    setModal("addWorker");
+  };
 
   const removeWorker = async (id) => {
     try {
@@ -121,15 +149,7 @@ export default function Workers() {
       if (String(selectedWorker) === String(id)) setSelectedWorker(null);
       listFetchGen.current += 1;
       const gen = listFetchGen.current;
-      const [{ workers: first, hasMore: hm }, stats] = await Promise.all([
-        getWorkersPage(WORKERS_PAGE_SIZE, 0, pageOptions),
-        getWorkerExpenseStatsMap(),
-      ]);
-      if (gen === listFetchGen.current) {
-        setWorkers(first || []);
-        setHasMore(!!hm);
-        setExpenseStatsMap(stats && typeof stats === "object" ? stats : {});
-      }
+      await refreshWorkers(workerPage, gen);
     } catch (_) {}
   };
 
@@ -152,17 +172,11 @@ export default function Workers() {
           phone: form.phone || "",
         });
       }
+      const nextPage = form.editId ? workerPage : 0;
+      if (!form.editId) setWorkerPage(0);
       listFetchGen.current += 1;
       const gen = listFetchGen.current;
-      const [{ workers: first, hasMore: hm }, stats] = await Promise.all([
-        getWorkersPage(WORKERS_PAGE_SIZE, 0, pageOptions),
-        getWorkerExpenseStatsMap(),
-      ]);
-      if (gen === listFetchGen.current) {
-        setWorkers(first || []);
-        setHasMore(!!hm);
-        setExpenseStatsMap(stats && typeof stats === "object" ? stats : {});
-      }
+      await refreshWorkers(nextPage, gen);
     } catch (_) {}
     setModal(null);
     setForm({});
@@ -230,26 +244,27 @@ export default function Workers() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <ScreenLayout scrollViewProps={{ onScroll: onScrollWorkers, scrollEventThrottle: 400 }}>
+    <View ref={listRootRef} collapsable={false} style={{ flex: 1 }}>
+      <ScreenLayout>
         <View style={styles.workersView}>
           <TouchableOpacity
             style={[styles.btn, styles.btnWorker, { marginBottom: 12, alignSelf: "flex-start" }]}
             onPress={() => {
               setFormErrors({});
               setForm({});
+              closeRowMenu();
               setModal("addWorker");
             }}
           >
             <Text style={styles.btnText}>+ صنايعي جديد</Text>
           </TouchableOpacity>
           <View style={[styles.inputGroup, { marginBottom: 12 }]}>
-            <Text style={styles.inputLabel}>بحث باسم الصنايعي</Text>
+            <Text style={styles.inputLabel}>بحث بالاسم أو رقم التليفون</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <FormTextInput
                   styles={styles}
-                  placeholder="اكتب جزءاً من الاسم ثم اضغط بحث"
+                  placeholder="اكتب جزءاً من الاسم أو الرقم ثم اضغط بحث"
                   placeholderTextColor="#64748b"
                   value={searchQuery}
                   onChangeText={setSearchQuery}
@@ -257,18 +272,26 @@ export default function Workers() {
               </View>
               <TouchableOpacity
                 style={[styles.btn, styles.btnWorker, { paddingVertical: 11, paddingHorizontal: 18 }]}
-                onPress={() => setAppliedSearch(trimmed(searchQuery))}
+                onPress={() => {
+                  closeRowMenu();
+                  setAppliedSearch(trimmed(searchQuery));
+                }}
               >
                 <Text style={styles.btnText}>بحث</Text>
               </TouchableOpacity>
             </View>
           </View>
+          {loading && workers.length > 0 ? (
+            <View style={{ paddingVertical: 8, alignItems: "center" }}>
+              <ActivityIndicator color="#f59e0b" />
+            </View>
+          ) : null}
           {workers.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>👷</Text>
               <Text style={styles.emptyText}>
                 {appliedSearch
-                  ? "لا يوجد صنايعية يطابقون البحث. جرّب اسمًا آخر أو امسح النص واضغط بحث."
+                  ? "لا يوجد صنايعية يطابقون البحث. جرّب كلمات أخرى أو احذف النص واضغط بحث."
                   : "لا يوجد صنايعية بعد"}
               </Text>
             </View>
@@ -279,62 +302,173 @@ export default function Workers() {
                   نتائج البحث عن «{appliedSearch}»
                 </Text>
               ) : null}
-              <View style={styles.workersGrid}>
-                {workerStats.map((w) => (
-                  <TouchableOpacity
-                    key={w.id}
-                    style={styles.workerCard}
-                    onPress={() => setSelectedWorker(w.id)}
-                  >
-                    <View style={styles.workerCardHeader}>
-                      <View>
-                        <Text style={styles.workerCardName}>👷 {w.name}</Text>
-                        {w.phone && <Text style={styles.workerCardPhone}>📞 {w.phone}</Text>}
-                      </View>
-                      <View style={styles.workerCardActions}>
-                        <TouchableOpacity
-                          style={styles.iconBtn}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            setFormErrors({});
-                            setForm({ editId: w.id, name: w.name, phone: w.phone });
-                            setModal("addWorker");
-                          }}
-                        >
-                          <Text style={styles.iconBtnText}>✏️</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.iconBtn, styles.iconBtnDanger]}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            removeWorker(w.id);
-                          }}
-                        >
-                          <Text style={styles.iconBtnText}>🗑️</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    <View style={styles.workerCardStats}>
-                      <Text style={styles.workerCardStatsLabel}>إجمالي المصروفات</Text>
-                      <Text style={styles.workerCardStatsValue}>
-                        {fmt(w.total)} {CURRENCY}
-                      </Text>
-                      <Text style={styles.workerCardStatsCount}>{w.count} معاملة</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              {loadingMore ? (
-                <View style={{ paddingVertical: 20, alignItems: "center" }}>
-                  <ActivityIndicator color="#f59e0b" />
-                  <Text style={[styles.loadingText, { marginTop: 8, fontSize: 13 }]}>جاري التحميل...</Text>
+              <View style={styles.stockTableCard}>
+                <View style={styles.stockTableHeader}>
+                  <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                    <Text style={styles.stockTableHeaderText} numberOfLines={1}>
+                      الاسم
+                    </Text>
+                  </View>
+                  <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                    <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                      التليفون
+                    </Text>
+                  </View>
+                  <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                    <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                      المصروفات
+                    </Text>
+                  </View>
+                  <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
+                    <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                      {" "}
+                    </Text>
+                  </View>
                 </View>
-              ) : null}
+                {workerStats.map((w, index) => {
+                  const isLast = index === workerStats.length - 1;
+                  return (
+                    <View
+                      key={w.id}
+                      style={[
+                        styles.stockTableRow,
+                        index % 2 === 1 && styles.stockTableRowAlt,
+                        isLast && workerPageCount <= 1 && styles.stockTableRowLast,
+                      ]}
+                    >
+                      <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                        <Text style={styles.stockTableCellName} numberOfLines={2}>
+                          {w.name}
+                        </Text>
+                        <Text style={styles.stockTableCellSub} numberOfLines={1}>
+                          {w.count} معاملة
+                        </Text>
+                      </View>
+                      <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                        <Text style={[styles.stockTableCell, styles.stockTableCellCenter]} numberOfLines={1}>
+                          {w.phone || "—"}
+                        </Text>
+                      </View>
+                      <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                        <Text
+                          style={[styles.stockTableCell, styles.stockTableCellCenter, { color: "#f59e0b" }]}
+                          numberOfLines={1}
+                        >
+                          {fmt(w.total)} {CURRENCY}
+                        </Text>
+                      </View>
+                      <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
+                        <View
+                          collapsable={false}
+                          ref={(el) => {
+                            if (el) menuBtnRefs.current[w.id] = el;
+                            else delete menuBtnRefs.current[w.id];
+                          }}
+                        >
+                          <TouchableOpacity style={styles.stockMenuBtn} onPress={() => openRowMenu(w)}>
+                            <Text style={styles.stockMenuBtnText}>⋮</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+                {workerPageCount > 1 ? (
+                  <View style={styles.stockTablePager}>
+                    <TouchableOpacity
+                      style={[
+                        styles.stockTablePagerBtn,
+                        workerPage === 0 && styles.stockTablePagerBtnDisabled,
+                      ]}
+                      onPress={() => {
+                        closeRowMenu();
+                        setWorkerPage((p) => Math.max(0, p - 1));
+                      }}
+                      disabled={workerPage === 0}
+                    >
+                      <Text style={styles.stockTablePagerBtnText}>السابق</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.stockTablePagerInfo}>
+                      صفحة {workerPage + 1} من {workerPageCount}
+                    </Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.stockTablePagerBtn,
+                        workerPage >= workerPageCount - 1 && styles.stockTablePagerBtnDisabled,
+                      ]}
+                      onPress={() => {
+                        closeRowMenu();
+                        setWorkerPage((p) => Math.min(workerPageCount - 1, p + 1));
+                      }}
+                      disabled={workerPage >= workerPageCount - 1}
+                    >
+                      <Text style={styles.stockTablePagerBtnText}>التالي</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
             </>
           )}
         </View>
       </ScreenLayout>
       {workerModal}
+      {rowMenuPos?.worker ? (
+        <View style={rowMenuOverlayStyles.layer} pointerEvents="box-none">
+          <Pressable style={rowMenuOverlayStyles.backdrop} onPress={closeRowMenu} />
+          <View
+            style={[
+              styles.stockRowMenu,
+              {
+                top: rowMenuPos.y + rowMenuPos.h + 4,
+                left: rowMenuPos.x,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.stockRowMenuItem}
+              onPress={() => {
+                const id = rowMenuPos.worker.id;
+                closeRowMenu();
+                setSelectedWorker(id);
+              }}
+            >
+              <Text style={styles.stockRowMenuItemText}>عرض</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.stockRowMenuItem}
+              onPress={() => {
+                const worker = rowMenuPos.worker;
+                closeRowMenu();
+                openEditWorker(worker);
+              }}
+            >
+              <Text style={[styles.stockRowMenuItemText, { color: "#fbbf24" }]}>تعديل</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.stockRowMenuItem}
+              onPress={() => {
+                const id = rowMenuPos.worker.id;
+                closeRowMenu();
+                removeWorker(id);
+              }}
+            >
+              <Text style={[styles.stockRowMenuItemText, { color: "#f43f5e" }]}>مسح</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
+
+const rowMenuOverlayStyles = StyleSheet.create({
+  layer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
+    direction: "ltr",
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+});
