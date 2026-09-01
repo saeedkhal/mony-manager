@@ -152,7 +152,7 @@ export default function ClientSearchSelect({
                     style={local.searchInput}
                     value={query}
                     onChangeText={setQuery}
-                    placeholder="ابحث عن عميل..."
+                    placeholder="ابحث بالاسم أو رقم التليفون..."
                     placeholderTextColor="#64748b"
                     autoFocus
                     underlineColorAndroid="transparent"
@@ -185,6 +185,11 @@ export default function ClientSearchSelect({
                             >
                               {c.name}
                             </Text>
+                            {c.phone ? (
+                              <Text style={local.itemPhone} numberOfLines={1}>
+                                {c.phone}
+                              </Text>
+                            ) : null}
                           </TouchableOpacity>
                         );
                       })}
@@ -315,5 +320,13 @@ const local = StyleSheet.create({
   itemTextSelected: {
     color: "#fff",
     fontWeight: "700",
+  },
+  itemPhone: {
+    color: "#94a3b8",
+    fontSize: 12,
+    marginTop: 2,
+    textAlign: "right",
+    writingDirection: "ltr",
+    width: "100%",
   },
 });

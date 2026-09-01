@@ -41,7 +41,7 @@ function AppContent() {
   const onNavStateChange = (state) => {
     if (!state) return;
     const route = state.routes[state.index];
-    if (route?.name) setActiveTab(route.name);
+    if (route?.name) setActiveTab(route.name === "clientStatement" ? "clients" : route.name);
   };
 
   const systemBarColor = "#f0f0f0";

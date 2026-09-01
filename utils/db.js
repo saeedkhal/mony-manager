@@ -160,7 +160,9 @@ async function initSchema(database) {
       status TEXT DEFAULT 'active',
       note TEXT,
       created_at TEXT,
-      fiscal_year_id INTEGER REFERENCES fiscal_years(id)
+      fiscal_year_id INTEGER REFERENCES fiscal_years(id),
+      order_amount REAL,
+      phone TEXT
     );
     CREATE TABLE IF NOT EXISTS client_transactions (
       id INTEGER PRIMARY KEY NOT NULL,
@@ -206,6 +208,22 @@ async function initSchema(database) {
   `);
   await migrateGeneralTxKind(database);
   await migrateStockSchema(database);
+  await migrateClientsSchema(database);
+}
+
+async function migrateClientsSchema(database) {
+  try {
+    const cols = await database.getAllAsync("PRAGMA table_info(clients)");
+    const names = new Set((cols || []).map((c) => c.name));
+    if (!names.has("order_amount")) {
+      await database.execAsync("ALTER TABLE clients ADD COLUMN order_amount REAL");
+    }
+    if (!names.has("phone")) {
+      await database.execAsync("ALTER TABLE clients ADD COLUMN phone TEXT");
+    }
+  } catch (e) {
+    console.warn("migrateClientsSchema:", e?.message || e);
+  }
 }
 
 async function migrateStockSchema(database) {
@@ -458,6 +476,7 @@ export async function getActiveFiscalYearId() {
 }
 
 function rowToClient(c, txRows) {
+  const orderRaw = c.order_amount != null ? c.order_amount : c.orderAmount;
   return {
     id: c.id,
     name: c.name,
@@ -466,6 +485,8 @@ function rowToClient(c, txRows) {
     note: c.note || "",
     fiscalYearId: c.fiscal_year_id != null ? c.fiscal_year_id : null,
     createdAt: c.created_at || "",
+    phone: c.phone || "",
+    orderAmount: orderRaw != null && orderRaw !== "" ? Number(orderRaw) : null,
     txs: (txRows || [])
       .filter((t) => t.client_id === c.id)
       .map((t) => ({
@@ -509,7 +530,7 @@ export async function getFullState() {
     if (IS_WEB) return getWebState();
     return await runDb(async (database) => {
       const clientsRows = await database.getAllAsync(
-        "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id DESC"
+        "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients ORDER BY id DESC"
       );
       const txRows = await database.getAllAsync(
         `SELECT ${CLIENT_TX_SELECT} FROM client_transactions ORDER BY client_id, id`
@@ -580,8 +601,8 @@ export async function getClients() {
       const fyId = await getActiveFiscalYearIdWithDb(database);
       const sql =
         fyId != null
-          ? "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE fiscal_year_id = ? ORDER BY id DESC"
-          : "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id DESC";
+          ? "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE fiscal_year_id = ? ORDER BY id DESC"
+          : "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients ORDER BY id DESC";
       const clientsRows =
         fyId != null
           ? await database.getAllAsync(sql, fyId)
@@ -599,14 +620,23 @@ export async function getClients() {
 }
 
 const CLIENTS_PAGE_DEFAULT = 5;
+const CLIENT_SEARCH_NAME_OR_PHONE =
+  "(instr(lower(name), lower(?)) > 0 OR instr(lower(ifnull(phone, '')), lower(?)) > 0)";
+
+function clientMatchesNameOrPhone(c, q) {
+  const low = String(q || "").toLowerCase();
+  if (!low) return true;
+  return (
+    (c.name || "").toLowerCase().includes(low) || (c.phone || "").toLowerCase().includes(low)
+  );
+}
 
 /**
  * Paginated clients (same fiscal filter as getClients), with txs only for returned rows.
- * Requests `limit + 1` rows internally to set `hasMore` without a separate COUNT.
  * @param {number} [limit=5] — page size (capped 1–50)
  * @param {number} [offset=0]
- * @param {{ nameContains?: string }} [options] — optional case-insensitive substring match on `name`
- * @returns {Promise<{ clients: [], hasMore: boolean }>}
+ * @param {{ nameContains?: string }} [options] — optional substring match on name or phone
+ * @returns {Promise<{ clients: [], hasMore: boolean, total: number }>}
  */
 export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, options = {}) {
   const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || CLIENTS_PAGE_DEFAULT));
@@ -620,8 +650,7 @@ export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, o
       const state = await getWebState();
       let all = state ? [...(state.clients || [])] : [];
       if (useNameFilter) {
-        const low = nameQ.toLowerCase();
-        all = all.filter((c) => (c.name || "").toLowerCase().includes(low));
+        all = all.filter((c) => clientMatchesNameOrPhone(c, nameQ));
       }
       all.sort((a, b) => Number(b.id) - Number(a.id));
       const slice = all.slice(off, off + take);
@@ -631,31 +660,33 @@ export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, o
         ...c,
         txs: Array.isArray(c.txs) ? c.txs : [],
       }));
-      return { clients, hasMore };
+      return { clients, hasMore, total: all.length };
     }
     return await runDb(async (database) => {
       const fyId = await getActiveFiscalYearIdWithDb(database);
-      const nameClause = useNameFilter ? " AND instr(lower(name), lower(?)) > 0" : "";
+      const nameClause = useNameFilter ? ` AND ${CLIENT_SEARCH_NAME_OR_PHONE}` : "";
       let sqlBase;
+      let countSql;
       let baseParams;
       if (fyId != null) {
-        sqlBase = `SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC`;
-        baseParams = useNameFilter ? [fyId, nameQ] : [fyId];
+        sqlBase = `SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC`;
+        countSql = `SELECT COUNT(*) AS n FROM clients WHERE fiscal_year_id = ?${nameClause}`;
+        baseParams = useNameFilter ? [fyId, nameQ, nameQ] : [fyId];
       } else {
         sqlBase = useNameFilter
-          ? `SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC`
-          : "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients ORDER BY id DESC";
-        baseParams = useNameFilter ? [nameQ] : [];
+          ? `SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE ${CLIENT_SEARCH_NAME_OR_PHONE} ORDER BY id DESC`
+          : "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients ORDER BY id DESC";
+        countSql = useNameFilter
+          ? `SELECT COUNT(*) AS n FROM clients WHERE ${CLIENT_SEARCH_NAME_OR_PHONE}`
+          : "SELECT COUNT(*) AS n FROM clients";
+        baseParams = useNameFilter ? [nameQ, nameQ] : [];
       }
-      const clientsRows = await database.getAllAsync(
-        `${sqlBase} LIMIT ? OFFSET ?`,
-        ...baseParams,
-        take,
-        off
-      );
-      const hasMore = clientsRows.length > lim;
-      const pageRows = hasMore ? clientsRows.slice(0, lim) : clientsRows;
-      const ids = pageRows.map((c) => c.id);
+      const [countRow, clientsRows] = await Promise.all([
+        database.getFirstAsync(countSql, ...baseParams),
+        database.getAllAsync(`${sqlBase} LIMIT ? OFFSET ?`, ...baseParams, lim, off),
+      ]);
+      const total = Number(countRow?.n) || 0;
+      const ids = (clientsRows || []).map((c) => c.id);
       let txRows = [];
       if (ids.length > 0) {
         const ph = ids.map(() => "?").join(",");
@@ -664,13 +695,14 @@ export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, o
           ...ids
         );
       }
-      const clients = pageRows.map((c) => rowToClient(c, txRows));
-      return { clients, hasMore };
+      const clients = (clientsRows || []).map((c) => rowToClient(c, txRows));
+      const hasMore = off + clients.length < total;
+      return { clients, hasMore, total };
     });
   } catch (e) {
     console.warn("DB getClientsPage error:", e?.message || e);
     clearDbOnError(e);
-    return { clients: [], hasMore: false };
+    return { clients: [], hasMore: false, total: 0 };
   }
 }
 
@@ -678,8 +710,8 @@ export const CLIENT_SELECT_DEFAULT_LIMIT = 5;
 export const CLIENT_SELECT_MIN_CHARS = 3;
 
 /**
- * Lightweight client picker rows (id + name only, no transactions).
- * Empty query → newest `limit` clients. Query of 3+ chars → name contains match.
+ * Lightweight client picker rows (id + name + phone, no transactions).
+ * Empty query → newest `limit` clients. Query of 3+ chars → name or phone contains match.
  */
 export async function searchClientsForSelect(query = "", limit = CLIENT_SELECT_DEFAULT_LIMIT) {
   const lim = Math.min(20, Math.max(1, Math.floor(Number(limit)) || CLIENT_SELECT_DEFAULT_LIMIT));
@@ -690,28 +722,27 @@ export async function searchClientsForSelect(query = "", limit = CLIENT_SELECT_D
       const state = await getWebState();
       let all = state ? [...(state.clients || [])] : [];
       if (useSearch) {
-        const low = q.toLowerCase();
-        all = all.filter((c) => (c.name || "").toLowerCase().includes(low));
+        all = all.filter((c) => clientMatchesNameOrPhone(c, q));
       }
       all.sort((a, b) => Number(b.id) - Number(a.id));
-      return all.slice(0, lim).map((c) => ({ id: c.id, name: c.name || "" }));
+      return all.slice(0, lim).map((c) => ({ id: c.id, name: c.name || "", phone: c.phone || "" }));
     }
     return await runDb(async (database) => {
       const fyId = await getActiveFiscalYearIdWithDb(database);
-      const nameClause = useSearch ? " AND instr(lower(name), lower(?)) > 0" : "";
+      const nameClause = useSearch ? ` AND ${CLIENT_SEARCH_NAME_OR_PHONE}` : "";
       let sql;
       let params;
       if (fyId != null) {
-        sql = `SELECT id, name FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC LIMIT ?`;
-        params = useSearch ? [fyId, q, lim] : [fyId, lim];
+        sql = `SELECT id, name, phone FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC LIMIT ?`;
+        params = useSearch ? [fyId, q, q, lim] : [fyId, lim];
       } else {
         sql = useSearch
-          ? "SELECT id, name FROM clients WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC LIMIT ?"
-          : "SELECT id, name FROM clients ORDER BY id DESC LIMIT ?";
-        params = useSearch ? [q, lim] : [lim];
+          ? `SELECT id, name, phone FROM clients WHERE ${CLIENT_SEARCH_NAME_OR_PHONE} ORDER BY id DESC LIMIT ?`
+          : "SELECT id, name, phone FROM clients ORDER BY id DESC LIMIT ?";
+        params = useSearch ? [q, q, lim] : [lim];
       }
       const rows = await database.getAllAsync(sql, ...params);
-      return (rows || []).map((r) => ({ id: r.id, name: r.name || "" }));
+      return (rows || []).map((r) => ({ id: r.id, name: r.name || "", phone: r.phone || "" }));
     });
   } catch (e) {
     console.warn("DB searchClientsForSelect error:", e?.message || e);
@@ -761,7 +792,7 @@ export async function getClientWithTxs(clientId) {
     }
     return await runDb(async (database) => {
       const clientRows = await database.getAllAsync(
-        "SELECT id, name, project, status, note, created_at, fiscal_year_id FROM clients WHERE id = ?",
+        "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE id = ?",
         clientId
       );
       if (clientRows.length === 0) return null;
@@ -1363,14 +1394,16 @@ export async function saveState(data) {
     await runDb(async (database) => {
       for (const c of data.clients || []) {
         await database.runAsync(
-          "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           c.id,
           c.name || "",
           c.project || "",
           c.status || "active",
           c.note || "",
           c.createdAt || "",
-          c.fiscalYearId ?? null
+          c.fiscalYearId ?? null,
+          c.orderAmount != null && Number(c.orderAmount) > 0 ? Number(c.orderAmount) : null,
+          c.phone || ""
         );
         await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", c.id);
         for (const t of c.txs || []) {
@@ -1452,14 +1485,16 @@ export async function upsertClient(client) {
     }
     await runDb(async (database) => {
       await database.runAsync(
-        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         client.id,
         client.name || "",
         client.project || "",
         client.status || "active",
         client.note || "",
         client.createdAt || "",
-        client.fiscalYearId ?? null
+        client.fiscalYearId ?? null,
+        client.orderAmount != null && Number(client.orderAmount) > 0 ? Number(client.orderAmount) : null,
+        client.phone || ""
       );
       await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", client.id);
       for (const t of client.txs || []) {

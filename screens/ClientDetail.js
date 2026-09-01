@@ -22,7 +22,7 @@ import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
 
-export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted }) {
+export default function ClientDetail({ selectedClient, setSelectedClient, onClientDeleted, onEditClient, reloadToken }) {
   const { activeFiscalYearId, activeFiscalYearLabel, deleteClientTx, setForm, setModal, modal, form } =
     useApp();
 
@@ -145,7 +145,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedClient]);
+  }, [selectedClient, reloadToken]);
 
   const refetchClientScreen = async () => {
     if (!selectedClient) return;
@@ -181,11 +181,13 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   };
 
   const totals = useMemo(() => {
-    if (!client) return { income: 0, expense: 0, profit: 0 };
+    if (!client) return { income: 0, expense: 0, profit: 0, orderAmount: 0, remaining: null };
     const txs = client.txs || [];
     const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
     const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
-    return { income, expense, profit: income - expense };
+    const orderAmount = Number(client.orderAmount) > 0 ? Number(client.orderAmount) : 0;
+    const remaining = orderAmount > 0 ? orderAmount - income : null;
+    return { income, expense, profit: income - expense, orderAmount, remaining };
   }, [client]);
 
   const getWorkerName = (id) => workers.find((w) => w.id === id)?.name || "غير محدد";
@@ -371,6 +373,9 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         <Text style={styles.clientDetailMeta}>
           {client.project} — السنة المالية {activeFiscalYearLabel}
         </Text>
+        {client.phone ? (
+          <Text style={styles.clientDetailMeta}>📞 {client.phone}</Text>
+        ) : null}
         <View style={styles.clientDetailHeaderBtnRow}>
           <TouchableOpacity
             style={[
@@ -381,6 +386,12 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
             onPress={() => toggleStatus(client.id)}
           >
             <Text style={[styles.statusBtnText, { color: s.color }]}>{s.label}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.txEditBtn, styles.clientDetailHeaderBtn]}
+            onPress={() => onEditClient?.(client)}
+          >
+            <Text style={styles.txEditBtnText}>تعديل البيانات</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.deleteBtn, styles.clientDetailHeaderBtn]}
@@ -396,19 +407,34 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
 
       <View style={styles.clientDetailStats}>
         {[
-          ["💵 إجمالي الدخل", "#818cf8", "rgba(129,140,248,0.1)", t.income],
-          ["🔨 إجمالي المصروفات", "#fb923c", "rgba(251,146,60,0.1)", t.expense],
+          ["📦 الطلبية", "#e2e8f0", "rgba(148,163,184,0.12)", t.orderAmount > 0 ? t.orderAmount : null],
+          ["💵 المدفوع", "#818cf8", "rgba(129,140,248,0.1)", t.income],
           [
-            "💰 صافي الربح",
+            "⏳ المتبقي",
+            t.remaining == null ? "#94a3b8" : t.remaining > 0 ? "#fb923c" : t.remaining < 0 ? "#818cf8" : "#10b981",
+            t.remaining == null
+              ? "rgba(148,163,184,0.1)"
+              : t.remaining > 0
+                ? "rgba(251,146,60,0.1)"
+                : t.remaining < 0
+                  ? "rgba(129,140,248,0.1)"
+                  : "rgba(16,185,129,0.1)",
+            t.remaining,
+          ],
+          ["🔨 المصروفات", "#fb923c", "rgba(251,146,60,0.1)", t.expense],
+          [
+            "💰 الربح",
             t.profit >= 0 ? "#10b981" : "#f43f5e",
             t.profit >= 0 ? "rgba(16,185,129,0.1)" : "rgba(244,63,94,0.1)",
             t.profit,
           ],
         ].map(([l, col, bg, v]) => (
           <View key={l} style={[styles.clientDetailStatCard, { backgroundColor: bg, borderColor: col + "30" }]}>
-            <Text style={styles.clientDetailStatLabel}>{l}</Text>
-            <Text style={[styles.clientDetailStatValue, { color: col }]}>
-              {fmt(v)} {CURRENCY}
+            <Text style={styles.clientDetailStatLabel} numberOfLines={1}>
+              {l}
+            </Text>
+            <Text style={[styles.clientDetailStatValue, { color: col }]} numberOfLines={1}>
+              {v == null ? "—" : `${fmt(v)} ${CURRENCY}`}
             </Text>
           </View>
         ))}

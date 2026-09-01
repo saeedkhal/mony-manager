@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import styles from "../styles/AppStyles";
-import { useKeyboardBottomPad } from "../hooks/useKeyboardBottomPad";
+import { useKeyboardAwareScroll } from "../hooks/useKeyboardBottomPad";
 
 /**
  * Full-screen form page that replaces the popup overlay.
@@ -17,7 +17,7 @@ import { useKeyboardBottomPad } from "../hooks/useKeyboardBottomPad";
  */
 export default function CustomModal({ visible = true, onClose, children }) {
   const insets = useSafeAreaInsets();
-  const keyboardPad = useKeyboardBottomPad();
+  const { scrollRef, keyboardPad, onScroll, Provider } = useKeyboardAwareScroll();
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -31,27 +31,32 @@ export default function CustomModal({ visible = true, onClose, children }) {
   if (!visible) return null;
 
   return (
-    <View style={pageStyles.fill}>
-      <ScrollView
-        style={pageStyles.flex}
-        contentContainerStyle={{
-          padding: 24,
-          paddingBottom: 24 + insets.bottom + keyboardPad,
-        }}
-        showsVerticalScrollIndicator
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        nestedScrollEnabled
-      >
-        <View style={[styles.clientDetailBackRow, { marginBottom: 16 }]}>
-          <TouchableOpacity style={styles.backBtn} onPress={onClose}>
-            <Text style={styles.backBtnText}>←</Text>
-            <Text style={styles.backBtnText}>رجوع</Text>
-          </TouchableOpacity>
-        </View>
-        {children}
-      </ScrollView>
-    </View>
+    <Provider>
+      <View style={pageStyles.fill}>
+        <ScrollView
+          ref={scrollRef}
+          style={pageStyles.flex}
+          contentContainerStyle={{
+            padding: 24,
+            paddingBottom: 24 + insets.bottom + keyboardPad,
+          }}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          nestedScrollEnabled
+        >
+          <View style={[styles.clientDetailBackRow, { marginBottom: 16 }]}>
+            <TouchableOpacity style={styles.backBtn} onPress={onClose}>
+              <Text style={styles.backBtnText}>←</Text>
+              <Text style={styles.backBtnText}>رجوع</Text>
+            </TouchableOpacity>
+          </View>
+          {children}
+        </ScrollView>
+      </View>
+    </Provider>
   );
 }
 
