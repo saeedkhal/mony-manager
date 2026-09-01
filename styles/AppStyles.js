@@ -55,7 +55,7 @@ export default StyleSheet.create({
   statCardTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   statCardMainTitle: { color: "#e2e8f0", fontSize: 14, fontWeight: "700", flex: 1 },
   statTotalCaption: { color: "#64748b", fontSize: 11, fontWeight: "600", marginTop: 12 },
-  statSubGrid: { flexDirection: "row", gap: 10, marginTop: 10 },
+  statSubGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
   statSubCard: {
     flex: 1,
     borderRadius: 12,

@@ -4,7 +4,7 @@ import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { BarChart } from "react-native-chart-kit";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
-import { getClients, getClientsPage, getGeneralTxs, getStockDashboardStats } from "../utils/db";
+import { getClients, getClientsPage, getGeneralTxs, getStockDashboardStats, getWorkerPayoutsForFiscalYear } from "../utils/db";
 import { CURRENCY, STATUS_LABELS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles, { SCREEN_WIDTH } from "../styles/AppStyles";
@@ -102,6 +102,7 @@ export default function Dashboard() {
   const navigation = useNavigation();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
+  const [workerPayouts, setWorkerPayouts] = useState([]);
   const [summaryClients, setSummaryClients] = useState([]);
   const [summaryHasMore, setSummaryHasMore] = useState(false);
   const [summaryLoadingMore, setSummaryLoadingMore] = useState(false);
@@ -126,14 +127,16 @@ export default function Dashboard() {
       getGeneralTxs(activeFiscalYearId),
       getClientsPage(DASH_CLIENT_SUMMARY_PAGE, 0),
       getStockDashboardStats(activeFiscalYearId),
+      getWorkerPayoutsForFiscalYear(activeFiscalYearId),
     ])
-      .then(([c, g, { clients: first, hasMore }, stock]) => {
+      .then(([c, g, { clients: first, hasMore }, stock, payouts]) => {
         if (!cancelled) {
           setClients(c || []);
           setGeneralTxs(g || []);
           setSummaryClients(first || []);
           setSummaryHasMore(!!hasMore);
           setStockStats(stock || { inventoryValue: 0, fyPurchases: 0, fyIssued: 0 });
+          setWorkerPayouts(payouts || []);
         }
       })
       .catch(() => {
@@ -143,6 +146,7 @@ export default function Dashboard() {
           setSummaryClients([]);
           setSummaryHasMore(false);
           setStockStats({ inventoryValue: 0, fyPurchases: 0, fyIssued: 0 });
+          setWorkerPayouts([]);
         }
       });
     return () => {
@@ -165,13 +169,14 @@ export default function Dashboard() {
     }
   }, [summaryHasMore, summaryLoadingMore, activeFiscalYearId]);
 
-  const appData = useAppData(clients, generalTxs, [], [], activeFiscalYearId, activeFiscalYearLabel);
+  const appData = useAppData(clients, generalTxs, [], [], activeFiscalYearId, activeFiscalYearLabel, workerPayouts);
   const {
     fyClients,
     clientTotals,
     totalIncome,
     totalClientExp,
     totalGenExp,
+    totalWorkerPayoutExp,
     totalGenIncome,
     netProfit,
     monthlyData,
@@ -208,7 +213,7 @@ export default function Dashboard() {
     ],
   };
 
-  const totalExpenses = totalClientExp + totalGenExp;
+  const totalExpenses = totalClientExp + totalGenExp + (totalWorkerPayoutExp || 0);
   const totalSales = totalIncome + totalGenIncome;
   const clientNetProfit = totalIncome - totalClientExp;
   const generalNetProfit = totalGenIncome - totalGenExp;
@@ -280,6 +285,13 @@ export default function Dashboard() {
                 {fmt(totalGenExp)} {CURRENCY}
               </Text>
               <Text style={styles.statSubPct}>{formatPctShare(totalGenExp, totalExpenses)}</Text>
+            </View>
+            <View style={[styles.statSubCard, { borderColor: "rgba(245,158,11,0.3)" }]}>
+              <Text style={styles.statSubLabel}>سلف الصنايعية</Text>
+              <Text style={[styles.statSubValue, { color: "#f59e0b" }]}>
+                {fmt(totalWorkerPayoutExp || 0)} {CURRENCY}
+              </Text>
+              <Text style={styles.statSubPct}>{formatPctShare(totalWorkerPayoutExp || 0, totalExpenses)}</Text>
             </View>
           </View>
         </View>

@@ -3,7 +3,7 @@ import { View, Text } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import { useAppData } from "../hooks/useAppData";
-import { getClients, getGeneralTxs, getSettings, setSettings as dbSetSettings } from "../utils/db";
+import { getClients, getGeneralTxs, getSettings, setSettings as dbSetSettings, getWorkerPayoutsForFiscalYear } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles from "../styles/AppStyles";
@@ -17,6 +17,7 @@ export default function Zakat() {
   const isFocused = useIsFocused();
   const [clients, setClients] = useState([]);
   const [generalTxs, setGeneralTxs] = useState([]);
+  const [workerPayouts, setWorkerPayouts] = useState([]);
   const [nissabPrice, setNissabPrice] = useState(85000);
 
   useEffect(() => {
@@ -33,27 +34,32 @@ export default function Zakat() {
   useEffect(() => {
     if (!loaded || !isFocused || activeFiscalYearId == null) return;
     let cancelled = false;
-    Promise.all([getClients(), getGeneralTxs(activeFiscalYearId)])
-      .then(([c, g]) => {
+    Promise.all([getClients(), getGeneralTxs(activeFiscalYearId), getWorkerPayoutsForFiscalYear(activeFiscalYearId)])
+      .then(([c, g, payouts]) => {
         if (!cancelled) {
           setClients(c || []);
           setGeneralTxs(g || []);
+          setWorkerPayouts(payouts || []);
         }
       })
       .catch(() => {
-        if (!cancelled) setClients([]);
-        if (!cancelled) setGeneralTxs([]);
+        if (!cancelled) {
+          setClients([]);
+          setGeneralTxs([]);
+          setWorkerPayouts([]);
+        }
       });
     return () => { cancelled = true; };
   }, [loaded, isFocused, activeFiscalYearId]);
 
-  const { totalIncome, totalGenIncome, totalClientExp, totalGenExp, netProfit } = useAppData(
+  const { totalIncome, totalGenIncome, totalClientExp, totalGenExp, totalWorkerPayoutExp, netProfit } = useAppData(
     clients,
     generalTxs,
     [],
     [],
     activeFiscalYearId,
     activeFiscalYearLabel,
+    workerPayouts,
   );
 
   const zakatBase = netProfit > 0 ? netProfit : 0;
@@ -109,6 +115,7 @@ export default function Zakat() {
             ["💵 دخل عام", fmt(totalGenIncome), "#10b981"],
             ["🔨 مصروفات العملاء", `- ${fmt(totalClientExp)}`, "#fb923c"],
             ["🏢 مصروفات عامة", `- ${fmt(totalGenExp)}`, "#f43f5e"],
+            ["👷 سلف الصنايعية", `- ${fmt(totalWorkerPayoutExp || 0)}`, "#f59e0b"],
           ].map(([l, v, c]) => (
             <View key={l} style={styles.zakatDetailRow}>
               <Text style={styles.zakatDetailLabel}>{l}</Text>

@@ -33,6 +33,7 @@ async function getWebState() {
       nissabPrice: data.nissabPrice != null ? Number(data.nissabPrice) : 85000,
       stockItems: data.stockItems || [],
       stockMovements: data.stockMovements || [],
+      workerTxs: data.workerTxs || [],
     };
   } catch (e) {
     return null;
@@ -209,6 +210,28 @@ async function initSchema(database) {
   await migrateGeneralTxKind(database);
   await migrateStockSchema(database);
   await migrateClientsSchema(database);
+  await migrateWorkerLedgerSchema(database);
+}
+
+async function migrateWorkerLedgerSchema(database) {
+  try {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS worker_transactions (
+        id INTEGER PRIMARY KEY NOT NULL,
+        worker_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        amount REAL NOT NULL,
+        cat TEXT,
+        note TEXT,
+        date TEXT,
+        fiscal_year_id INTEGER REFERENCES fiscal_years(id),
+        client_id INTEGER,
+        FOREIGN KEY (worker_id) REFERENCES workers(id)
+      );
+    `);
+  } catch (e) {
+    console.warn("migrateWorkerLedgerSchema:", e?.message || e);
+  }
 }
 
 async function migrateClientsSchema(database) {
@@ -539,6 +562,9 @@ export async function getFullState() {
         "SELECT id, amount, cat, note, date, fiscal_year_id, tx_kind FROM general ORDER BY id"
       );
       const workersRows = await database.getAllAsync("SELECT id, name, phone FROM workers ORDER BY id");
+      const workerTxRows = await database.getAllAsync(
+        "SELECT id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id FROM worker_transactions ORDER BY id"
+      );
       const suppliersRows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
       const settingsRows = await database.getAllAsync("SELECT key, value FROM settings");
 
@@ -551,6 +577,7 @@ export async function getFullState() {
         clientsRows.length > 0 ||
         generalRows.length > 0 ||
         workersRows.length > 0 ||
+        workerTxRows.length > 0 ||
         suppliersRows.length > 0 ||
         settingsRows.length > 0;
       if (!hasData) return null;
@@ -563,6 +590,7 @@ export async function getFullState() {
         name: r.name,
         phone: r.phone || "",
       }));
+      const workerTxs = (workerTxRows || []).map(mapWorkerTxRow);
       const suppliers = suppliersRows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -575,6 +603,7 @@ export async function getFullState() {
         clients,
         generalTxs,
         workers,
+        workerTxs,
         suppliers,
         activeFY: activeFY || null,
         customFYs: Array.isArray(fyRows) ? fyRows.map((r) => r.label) : [],
@@ -1151,45 +1180,322 @@ export async function getWorkersPage(limit = WORKERS_PAGE_DEFAULT, offset = 0, o
   }
 }
 
+function emptyWorkerLedgerStats() {
+  return { total: 0, count: 0, dueTotal: 0, payoutTotal: 0, paidTotal: 0, balance: 0 };
+}
+
+function mapWorkerTxRow(r) {
+  return {
+    id: r.id,
+    workerId: r.worker_id != null ? r.worker_id : r.workerId,
+    kind: r.kind === "due" ? "due" : "payout",
+    amount: Number(r.amount) || 0,
+    cat: r.cat || "",
+    note: r.note || "",
+    date: r.date || "",
+    fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : r.fiscalYearId ?? null,
+    clientId: r.client_id != null ? r.client_id : r.clientId ?? null,
+  };
+}
+
+function applyWorkerTxToStats(out, tx) {
+  const wid = String(tx.workerId);
+  if (!out[wid]) out[wid] = emptyWorkerLedgerStats();
+  const amt = Number(tx.amount) || 0;
+  if (tx.kind === "due") out[wid].dueTotal += amt;
+  else {
+    out[wid].payoutTotal += amt;
+    out[wid].paidTotal += amt;
+    out[wid].count += 1;
+  }
+}
+
+function finalizeWorkerLedgerStats(out) {
+  for (const key of Object.keys(out)) {
+    const s = out[key];
+    s.total = s.paidTotal;
+    s.balance = s.dueTotal - s.paidTotal;
+  }
+  return out;
+}
+
 /**
- * Aggregate expense stats per worker from client_transactions with worker_id.
- * Keys are stringified worker ids. Values: { total, count }.
+ * Ledger + client-expense stats per worker.
+ * Keys are stringified worker ids.
+ * Values: { total, count, dueTotal, payoutTotal, paidTotal, balance }.
+ * `total` = paidTotal (سلفة + باقي راتب + مصنعية العملاء).
  */
-export async function getWorkerExpenseStatsMap() {
+export async function getWorkerExpenseStatsMap(fiscalYearId = null) {
+  const fyId = fiscalYearId != null && fiscalYearId !== "" ? Number(fiscalYearId) : null;
   try {
     if (IS_WEB) {
       const state = await getWebState();
       const out = {};
+      for (const t of state?.workerTxs || []) {
+        if (fyId != null && Number(t.fiscalYearId) !== fyId) continue;
+        applyWorkerTxToStats(out, mapWorkerTxRow(t));
+      }
       for (const c of state?.clients || []) {
+        if (fyId != null && Number(c.fiscalYearId) !== fyId) continue;
         for (const t of c.txs || []) {
           if (t.type !== "expense" || t.workerId == null) continue;
           const wid = String(t.workerId);
-          if (!out[wid]) out[wid] = { total: 0, count: 0 };
-          out[wid].total += Number(t.amount) || 0;
+          if (!out[wid]) out[wid] = emptyWorkerLedgerStats();
+          const amt = Number(t.amount) || 0;
+          out[wid].paidTotal += amt;
           out[wid].count += 1;
         }
       }
-      return out;
+      return finalizeWorkerLedgerStats(out);
     }
     return await runDb(async (database) => {
-      const rows = await database.getAllAsync(
-        `SELECT worker_id AS wid, COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
-         FROM client_transactions
-         WHERE type = 'expense' AND worker_id IS NOT NULL
-         GROUP BY worker_id`
-      );
+      const fy = fyId != null && !Number.isNaN(fyId) ? fyId : await getActiveFiscalYearIdWithDb(database);
       const out = {};
-      for (const r of rows || []) {
+      const dueSql =
+        fy != null
+          ? "SELECT worker_id AS wid, kind, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt FROM worker_transactions WHERE fiscal_year_id = ? GROUP BY worker_id, kind"
+          : "SELECT worker_id AS wid, kind, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt FROM worker_transactions GROUP BY worker_id, kind";
+      const clientSql =
+        fy != null
+          ? `SELECT ct.worker_id AS wid, COALESCE(SUM(ct.amount), 0) AS total, COUNT(*) AS cnt
+             FROM client_transactions ct
+             INNER JOIN clients c ON c.id = ct.client_id
+             WHERE ct.type = 'expense' AND ct.worker_id IS NOT NULL AND c.fiscal_year_id = ?
+             GROUP BY ct.worker_id`
+          : `SELECT worker_id AS wid, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+             FROM client_transactions
+             WHERE type = 'expense' AND worker_id IS NOT NULL
+             GROUP BY worker_id`;
+      const [ledgerRows, clientRows] = await Promise.all([
+        fy != null ? database.getAllAsync(dueSql, fy) : database.getAllAsync(dueSql),
+        fy != null ? database.getAllAsync(clientSql, fy) : database.getAllAsync(clientSql),
+      ]);
+      for (const r of ledgerRows || []) {
         if (r.wid == null) continue;
-        const key = String(r.wid);
-        out[key] = { total: Number(r.total) || 0, count: Number(r.cnt) || 0 };
+        const wid = String(r.wid);
+        if (!out[wid]) out[wid] = emptyWorkerLedgerStats();
+        const amt = Number(r.total) || 0;
+        if (r.kind === "due") out[wid].dueTotal += amt;
+        else {
+          out[wid].payoutTotal += amt;
+          out[wid].paidTotal += amt;
+          out[wid].count += Number(r.cnt) || 0;
+        }
       }
-      return out;
+      for (const r of clientRows || []) {
+        if (r.wid == null) continue;
+        const wid = String(r.wid);
+        if (!out[wid]) out[wid] = emptyWorkerLedgerStats();
+        out[wid].paidTotal += Number(r.total) || 0;
+        out[wid].count += Number(r.cnt) || 0;
+      }
+      return finalizeWorkerLedgerStats(out);
     });
   } catch (e) {
     console.warn("DB getWorkerExpenseStatsMap error:", e?.message || e);
     clearDbOnError(e);
     return {};
+  }
+}
+
+/** Sum of worker payouts (سلفة / باقي راتب / مصنعية بدون عميل) for the fiscal year. */
+export async function getWorkerPayoutsForFiscalYear(fiscalYearId = null) {
+  const fyId = fiscalYearId != null && fiscalYearId !== "" ? Number(fiscalYearId) : null;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      return (state?.workerTxs || [])
+        .filter((t) => t.kind !== "due" && (fyId == null || Number(t.fiscalYearId) === fyId))
+        .map((t) => mapWorkerTxRow(t));
+    }
+    return await runDb(async (database) => {
+      const fy = fyId != null && !Number.isNaN(fyId) ? fyId : await getActiveFiscalYearIdWithDb(database);
+      const sql =
+        fy != null
+          ? "SELECT id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id FROM worker_transactions WHERE kind = 'payout' AND fiscal_year_id = ? ORDER BY date, id"
+          : "SELECT id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id FROM worker_transactions WHERE kind = 'payout' ORDER BY date, id";
+      const rows = fy != null ? await database.getAllAsync(sql, fy) : await database.getAllAsync(sql);
+      return (rows || []).map(mapWorkerTxRow);
+    });
+  } catch (e) {
+    console.warn("DB getWorkerPayoutsForFiscalYear error:", e?.message || e);
+    return [];
+  }
+}
+
+export async function getWorkerLedger(workerId, fiscalYearId = null) {
+  const wid = Number(workerId);
+  const fyId = fiscalYearId != null && fiscalYearId !== "" ? Number(fiscalYearId) : null;
+  const empty = {
+    dueTotal: 0,
+    payoutTotal: 0,
+    clientPaidTotal: 0,
+    paidTotal: 0,
+    balance: 0,
+    entries: [],
+  };
+  if (!Number.isFinite(wid)) return empty;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const ledgerTxs = (state?.workerTxs || [])
+        .map(mapWorkerTxRow)
+        .filter((t) => Number(t.workerId) === wid && (fyId == null || Number(t.fiscalYearId) === fyId));
+      const nameById = {};
+      for (const c of state?.clients || []) nameById[c.id] = c.name || "";
+      const clientEntries = [];
+      for (const c of state?.clients || []) {
+        if (fyId != null && Number(c.fiscalYearId) !== fyId) continue;
+        for (const t of c.txs || []) {
+          if (t.type !== "expense" || Number(t.workerId) !== wid) continue;
+          clientEntries.push({
+            id: `client-${c.id}-${t.id}`,
+            source: "client",
+            clientTxId: t.id,
+            clientId: c.id,
+            clientName: c.name || "",
+            kind: "payout",
+            cat: t.cat || "مصنعية",
+            amount: Number(t.amount) || 0,
+            note: t.note || "",
+            date: t.date || "",
+          });
+        }
+      }
+      const ledgerEntries = ledgerTxs.map((t) => ({
+        ...t,
+        source: "ledger",
+        clientName: t.clientId != null ? nameById[t.clientId] || "" : "",
+      }));
+      const dueTotal = ledgerTxs.filter((t) => t.kind === "due").reduce((s, t) => s + t.amount, 0);
+      const payoutTotal = ledgerTxs.filter((t) => t.kind !== "due").reduce((s, t) => s + t.amount, 0);
+      const clientPaidTotal = clientEntries.reduce((s, t) => s + t.amount, 0);
+      const paidTotal = payoutTotal + clientPaidTotal;
+      const entries = [...ledgerEntries, ...clientEntries].sort((a, b) => {
+        const d = String(a.date || "").localeCompare(String(b.date || ""));
+        if (d !== 0) return d;
+        return String(a.id).localeCompare(String(b.id));
+      });
+      return { dueTotal, payoutTotal, clientPaidTotal, paidTotal, balance: dueTotal - paidTotal, entries };
+    }
+    return await runDb(async (database) => {
+      const fy = fyId != null && !Number.isNaN(fyId) ? fyId : await getActiveFiscalYearIdWithDb(database);
+      const ledgerSql =
+        fy != null
+          ? "SELECT id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id FROM worker_transactions WHERE worker_id = ? AND fiscal_year_id = ? ORDER BY date, id"
+          : "SELECT id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id FROM worker_transactions WHERE worker_id = ? ORDER BY date, id";
+      const clientSql =
+        fy != null
+          ? `SELECT ct.id, ct.client_id, ct.amount, ct.cat, ct.note, ct.date, c.name AS client_name
+             FROM client_transactions ct
+             INNER JOIN clients c ON c.id = ct.client_id
+             WHERE ct.type = 'expense' AND ct.worker_id = ? AND c.fiscal_year_id = ?
+             ORDER BY ct.date, ct.id`
+          : `SELECT ct.id, ct.client_id, ct.amount, ct.cat, ct.note, ct.date, c.name AS client_name
+             FROM client_transactions ct
+             INNER JOIN clients c ON c.id = ct.client_id
+             WHERE ct.type = 'expense' AND ct.worker_id = ?
+             ORDER BY ct.date, ct.id`;
+      const [ledgerRows, clientRows] = await Promise.all([
+        fy != null ? database.getAllAsync(ledgerSql, wid, fy) : database.getAllAsync(ledgerSql, wid),
+        fy != null ? database.getAllAsync(clientSql, wid, fy) : database.getAllAsync(clientSql, wid),
+      ]);
+      const ledgerTxs = (ledgerRows || []).map(mapWorkerTxRow);
+      const clientIds = ledgerTxs.map((t) => t.clientId).filter((id) => id != null);
+      const nameById = {};
+      if (clientIds.length) {
+        const unique = [...new Set(clientIds.map(Number))];
+        const ph = unique.map(() => "?").join(",");
+        const nameRows = await database.getAllAsync(`SELECT id, name FROM clients WHERE id IN (${ph})`, ...unique);
+        for (const r of nameRows || []) nameById[r.id] = r.name || "";
+      }
+      const ledgerEntries = ledgerTxs.map((t) => ({
+        ...t,
+        source: "ledger",
+        clientName: t.clientId != null ? nameById[t.clientId] || "" : "",
+      }));
+      const clientEntries = (clientRows || []).map((t) => ({
+        id: `client-${t.client_id}-${t.id}`,
+        source: "client",
+        clientTxId: t.id,
+        clientId: t.client_id,
+        clientName: t.client_name || "",
+        kind: "payout",
+        cat: t.cat || "مصنعية",
+        amount: Number(t.amount) || 0,
+        note: t.note || "",
+        date: t.date || "",
+      }));
+      const dueTotal = ledgerTxs.filter((t) => t.kind === "due").reduce((s, t) => s + t.amount, 0);
+      const payoutTotal = ledgerTxs.filter((t) => t.kind !== "due").reduce((s, t) => s + t.amount, 0);
+      const clientPaidTotal = clientEntries.reduce((s, t) => s + t.amount, 0);
+      const paidTotal = payoutTotal + clientPaidTotal;
+      const entries = [...ledgerEntries, ...clientEntries].sort((a, b) => {
+        const d = String(a.date || "").localeCompare(String(b.date || ""));
+        if (d !== 0) return d;
+        return String(a.id).localeCompare(String(b.id));
+      });
+      return { dueTotal, payoutTotal, clientPaidTotal, paidTotal, balance: dueTotal - paidTotal, entries };
+    });
+  } catch (e) {
+    console.warn("DB getWorkerLedger error:", e?.message || e);
+    return empty;
+  }
+}
+
+export async function upsertWorkerTx(tx) {
+  if (tx == null || tx.id == null || tx.workerId == null) return;
+  const row = mapWorkerTxRow(tx);
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return;
+      const workerTxs = [...(state.workerTxs || [])];
+      const i = workerTxs.findIndex((t) => String(t.id) === String(row.id));
+      if (i >= 0) workerTxs[i] = row;
+      else workerTxs.push(row);
+      await setWebState({ ...state, workerTxs });
+      return;
+    }
+    await runDb((database) =>
+      database.runAsync(
+        "INSERT OR REPLACE INTO worker_transactions (id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        row.id,
+        row.workerId,
+        row.kind,
+        row.amount,
+        row.cat || "",
+        row.note || "",
+        row.date || "",
+        row.fiscalYearId ?? null,
+        row.clientId ?? null
+      )
+    );
+  } catch (e) {
+    if (e?.message && !e.message.includes("Native module is null")) {
+      console.error("DB upsertWorkerTx error:", e.message);
+    }
+    clearDbOnError(e);
+    throw e;
+  }
+}
+
+export async function deleteWorkerTx(id) {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return;
+      const workerTxs = (state.workerTxs || []).filter((t) => String(t.id) !== String(id));
+      await setWebState({ ...state, workerTxs });
+      return;
+    }
+    await runDb((database) => database.runAsync("DELETE FROM worker_transactions WHERE id = ?", id));
+  } catch (e) {
+    if (e?.message && !e.message.includes("Native module is null")) {
+      console.error("DB deleteWorkerTx error:", e.message);
+    }
+    clearDbOnError(e);
+    throw e;
   }
 }
 
@@ -1386,6 +1692,7 @@ export async function saveState(data) {
         activeFY: data.activeFY != null ? data.activeFY : null,
         customFYs: data.customFYs || [],
         nissabPrice: data.nissabPrice != null ? data.nissabPrice : 85000,
+        workerTxs: data.workerTxs || [],
       });
       return;
     }
@@ -1432,6 +1739,20 @@ export async function saveState(data) {
           w.id,
           w.name || "",
           w.phone || ""
+        );
+      }
+      for (const t of data.workerTxs || []) {
+        await database.runAsync(
+          "INSERT OR REPLACE INTO worker_transactions (id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          t.id,
+          t.workerId,
+          t.kind === "due" ? "due" : "payout",
+          t.amount,
+          t.cat || "",
+          t.note || "",
+          t.date || "",
+          t.fiscalYearId ?? null,
+          t.clientId ?? null
         );
       }
       for (const s of data.suppliers || []) {
@@ -1720,10 +2041,14 @@ export async function deleteWorker(id) {
       const state = await getWebState();
       if (!state) return;
       const workers = (state.workers || []).filter((w) => String(w.id) !== String(id));
-      await setWebState({ ...state, workers });
+      const workerTxs = (state.workerTxs || []).filter((t) => String(t.workerId) !== String(id));
+      await setWebState({ ...state, workers, workerTxs });
       return;
     }
-    await runDb((database) => database.runAsync("DELETE FROM workers WHERE id = ?", id));
+    await runDb(async (database) => {
+      await database.runAsync("DELETE FROM worker_transactions WHERE worker_id = ?", id);
+      await database.runAsync("DELETE FROM workers WHERE id = ?", id);
+    });
   } catch (e) {
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteWorker error:", e.message);
@@ -1801,6 +2126,7 @@ export async function setSettings(settings) {
         suppliers: (state && state.suppliers) || [],
         stockItems: (state && state.stockItems) || [],
         stockMovements: (state && state.stockMovements) || [],
+        workerTxs: (state && state.workerTxs) || [],
         activeFY: state && state.activeFY,
         activeFiscalYearId: state && state.activeFiscalYearId,
         customFYs: state && state.customFYs,
@@ -2529,6 +2855,7 @@ async function restoreWebStateFromJsonBackup(bytes) {
     nissabPrice: payload.nissabPrice != null ? Number(payload.nissabPrice) : 85000,
     stockItems: payload.stockItems || [],
     stockMovements: payload.stockMovements || [],
+    workerTxs: payload.workerTxs || [],
   });
 }
 
@@ -2609,6 +2936,7 @@ export async function getDatabaseBackupPayload() {
         nissabPrice: state.nissabPrice != null ? state.nissabPrice : 85000,
         stockItems: state.stockItems || [],
         stockMovements: state.stockMovements || [],
+        workerTxs: state.workerTxs || [],
       };
       const json = JSON.stringify(payload);
       return { bytes: new TextEncoder().encode(json), extension: "json" };

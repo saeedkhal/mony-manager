@@ -20,7 +20,7 @@ import { FORM_MSG, trimmed } from "../utils/formValidation";
 const WORKERS_PAGE_SIZE = 5;
 
 export default function Workers() {
-  const { loaded, modal, setForm, setModal, form } = useApp();
+  const { loaded, modal, setForm, setModal, form, activeFiscalYearId } = useApp();
   const [formErrors, setFormErrors] = useState({});
   const [workers, setWorkers] = useState([]);
   const [workerTotal, setWorkerTotal] = useState(0);
@@ -93,7 +93,7 @@ export default function Workers() {
     const offset = page * WORKERS_PAGE_SIZE;
     const [{ workers: rows, total }, stats] = await Promise.all([
       getWorkersPage(WORKERS_PAGE_SIZE, offset, pageOptions),
-      getWorkerExpenseStatsMap(),
+      getWorkerExpenseStatsMap(activeFiscalYearId),
     ]);
     if (gen != null && gen !== listFetchGen.current) return;
     const n = Number(total) || 0;
@@ -128,12 +128,12 @@ export default function Workers() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, selectedWorker, pageOptions, workerPage]);
+  }, [loaded, selectedWorker, pageOptions, workerPage, activeFiscalYearId]);
 
   const workerStats = useMemo(() => {
     return (workers || []).map((w) => {
-      const st = expenseStatsMap[String(w.id)] || { total: 0, count: 0 };
-      return { ...w, total: st.total, count: st.count };
+      const st = expenseStatsMap[String(w.id)] || { total: 0, count: 0, balance: 0 };
+      return { ...w, total: st.total, count: st.count, balance: Number(st.balance) || 0 };
     });
   }, [workers, expenseStatsMap]);
 
@@ -316,7 +316,7 @@ export default function Workers() {
                   </View>
                   <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
                     <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
-                      المصروفات
+                      الباقي
                     </Text>
                   </View>
                   <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
@@ -351,10 +351,18 @@ export default function Workers() {
                       </View>
                       <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
                         <Text
-                          style={[styles.stockTableCell, styles.stockTableCellCenter, { color: "#f59e0b" }]}
+                          style={[
+                            styles.stockTableCell,
+                            styles.stockTableCellCenter,
+                            {
+                              color:
+                                w.balance > 0 ? "#f59e0b" : w.balance < 0 ? "#f43f5e" : "#10b981",
+                            },
+                          ]}
                           numberOfLines={1}
                         >
-                          {fmt(w.total)} {CURRENCY}
+                          {w.balance > 0 ? "له " : w.balance < 0 ? "عليه " : ""}
+                          {fmt(Math.abs(w.balance))} {CURRENCY}
                         </Text>
                       </View>
                       <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
