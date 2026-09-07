@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet,
 import { useApp } from "../context/AppContext";
 import {
   getSuppliersPage,
-  getSupplierPurchaseStatsMap,
+  getSupplierLedgerStatsMap,
   deleteSupplier as dbDeleteSupplier,
   upsertSupplier,
   getSuppliers,
@@ -21,12 +21,12 @@ import { FORM_MSG, trimmed } from "../utils/formValidation";
 const SUPPLIERS_PAGE_SIZE = 5;
 
 export default function Suppliers() {
-  const { loaded, modal, setForm, setModal, form } = useApp();
+  const { loaded, modal, setForm, setModal, form, activeFiscalYearId } = useApp();
   const [formErrors, setFormErrors] = useState({});
   const [suppliers, setSuppliers] = useState([]);
   const [supplierTotal, setSupplierTotal] = useState(0);
   const [supplierPage, setSupplierPage] = useState(0);
-  const [purchaseStatsMap, setPurchaseStatsMap] = useState({});
+  const [ledgerStatsMap, setLedgerStatsMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -94,7 +94,7 @@ export default function Suppliers() {
     const offset = page * SUPPLIERS_PAGE_SIZE;
     const [{ suppliers: rows, total }, stats] = await Promise.all([
       getSuppliersPage(SUPPLIERS_PAGE_SIZE, offset, pageOptions),
-      getSupplierPurchaseStatsMap(),
+      getSupplierLedgerStatsMap(activeFiscalYearId),
     ]);
     if (gen != null && gen !== listFetchGen.current) return;
     const n = Number(total) || 0;
@@ -106,7 +106,7 @@ export default function Suppliers() {
     }
     setSuppliers(rows || []);
     setSupplierTotal(n);
-    setPurchaseStatsMap(stats && typeof stats === "object" ? stats : {});
+    setLedgerStatsMap(stats && typeof stats === "object" ? stats : {});
   };
 
   useEffect(() => {
@@ -121,7 +121,7 @@ export default function Suppliers() {
         if (cancelled || gen !== listFetchGen.current) return;
         setSuppliers([]);
         setSupplierTotal(0);
-        setPurchaseStatsMap({});
+        setLedgerStatsMap({});
       })
       .finally(() => {
         if (!cancelled && gen === listFetchGen.current) setLoading(false);
@@ -129,14 +129,14 @@ export default function Suppliers() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, selectedSupplier, pageOptions, supplierPage]);
+  }, [loaded, selectedSupplier, pageOptions, supplierPage, activeFiscalYearId]);
 
   const supplierStats = useMemo(() => {
     return (suppliers || []).map((s) => {
-      const st = purchaseStatsMap[String(s.id)] || { total: 0, count: 0 };
-      return { ...s, total: st.total, count: st.count };
+      const st = ledgerStatsMap[String(s.id)] || { total: 0, count: 0, balance: 0 };
+      return { ...s, total: st.total, count: st.count, balance: st.balance || 0 };
     });
-  }, [suppliers, purchaseStatsMap]);
+  }, [suppliers, ledgerStatsMap]);
 
   const openEditSupplier = (s) => {
     setFormErrors({});
@@ -345,7 +345,7 @@ export default function Suppliers() {
                   </View>
                   <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
                     <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
-                      المشتريات
+                      الباقي
                     </Text>
                   </View>
                   <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
@@ -383,10 +383,18 @@ export default function Suppliers() {
                       </View>
                       <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
                         <Text
-                          style={[styles.stockTableCell, styles.stockTableCellCenter, { color: "#a78bfa" }]}
+                          style={[
+                            styles.stockTableCell,
+                            styles.stockTableCellCenter,
+                            {
+                              color:
+                                s.balance > 0 ? "#f59e0b" : s.balance < 0 ? "#f43f5e" : "#10b981",
+                            },
+                          ]}
                           numberOfLines={1}
                         >
-                          {fmt(s.total)} {CURRENCY}
+                          {s.balance > 0 ? "له " : s.balance < 0 ? "عليه " : ""}
+                          {fmt(Math.abs(s.balance))} {CURRENCY}
                         </Text>
                       </View>
                       <View style={[styles.stockTableCol, styles.stockTableColMenu]}>

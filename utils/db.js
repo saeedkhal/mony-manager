@@ -50,6 +50,7 @@ async function getWebState() {
       stockItems: data.stockItems || [],
       stockMovements: data.stockMovements || [],
       workerTxs: data.workerTxs || [],
+      supplierTxs: data.supplierTxs || [],
     };
   } catch (e) {
     return null;
@@ -229,6 +230,7 @@ async function initSchema(database) {
   await migrateStockSchema(database);
   await migrateClientsSchema(database);
   await migrateWorkerLedgerSchema(database);
+  await migrateSupplierLedgerSchema(database);
 }
 
 async function migrateWorkerLedgerSchema(database) {
@@ -249,6 +251,26 @@ async function migrateWorkerLedgerSchema(database) {
     `);
   } catch (e) {
     console.warn("migrateWorkerLedgerSchema:", e?.message || e);
+  }
+}
+
+async function migrateSupplierLedgerSchema(database) {
+  try {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS supplier_transactions (
+        id INTEGER PRIMARY KEY NOT NULL,
+        supplier_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        amount REAL NOT NULL,
+        cat TEXT,
+        note TEXT,
+        date TEXT,
+        fiscal_year_id INTEGER REFERENCES fiscal_years(id),
+        FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+      );
+    `);
+  } catch (e) {
+    console.warn("migrateSupplierLedgerSchema:", e?.message || e);
   }
 }
 
@@ -613,6 +635,9 @@ export async function getFullState() {
       const workerTxRows = await database.getAllAsync(
         "SELECT id, worker_id, kind, amount, cat, note, date, fiscal_year_id, client_id FROM worker_transactions ORDER BY id"
       );
+      const supplierTxRows = await database.getAllAsync(
+        "SELECT id, supplier_id, kind, amount, cat, note, date, fiscal_year_id FROM supplier_transactions ORDER BY id"
+      );
       const suppliersRows = await database.getAllAsync("SELECT id, name, phone, category FROM suppliers ORDER BY id");
       const settingsRows = await database.getAllAsync("SELECT key, value FROM settings");
 
@@ -626,6 +651,7 @@ export async function getFullState() {
         generalRows.length > 0 ||
         workersRows.length > 0 ||
         workerTxRows.length > 0 ||
+        supplierTxRows.length > 0 ||
         suppliersRows.length > 0 ||
         settingsRows.length > 0;
       if (!hasData) return null;
@@ -639,6 +665,7 @@ export async function getFullState() {
         phone: r.phone || "",
       }));
       const workerTxs = (workerTxRows || []).map(mapWorkerTxRow);
+      const supplierTxs = (supplierTxRows || []).map(mapSupplierTxRow);
       const suppliers = suppliersRows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -652,6 +679,7 @@ export async function getFullState() {
         generalTxs,
         workers,
         workerTxs,
+        supplierTxs,
         suppliers,
         activeFY: activeFY || null,
         customFYs: Array.isArray(fyRows) ? fyRows.map((r) => r.label) : [],
@@ -1949,6 +1977,328 @@ export async function getSupplierPurchaseHistory(supplierId, options = {}) {
   }
 }
 
+function emptySupplierLedgerStats() {
+  return { total: 0, count: 0, dueTotal: 0, paidTotal: 0, balance: 0 };
+}
+
+function mapSupplierTxRow(r) {
+  return {
+    id: r.id,
+    supplierId: r.supplier_id != null ? r.supplier_id : r.supplierId,
+    kind: r.kind === "due" ? "due" : "payout",
+    amount: Number(r.amount) || 0,
+    cat: r.cat || "",
+    note: r.note || "",
+    date: r.date || "",
+    fiscalYearId: r.fiscal_year_id != null ? r.fiscal_year_id : r.fiscalYearId ?? null,
+  };
+}
+
+function finalizeSupplierLedgerStats(out) {
+  for (const key of Object.keys(out)) {
+    const s = out[key];
+    s.total = s.dueTotal;
+    s.balance = s.dueTotal - s.paidTotal;
+  }
+  return out;
+}
+
+function addSupplierDue(out, sid, amount, count = 1) {
+  if (sid == null) return;
+  const key = String(sid);
+  if (!out[key]) out[key] = emptySupplierLedgerStats();
+  out[key].dueTotal += Number(amount) || 0;
+  out[key].count += count;
+}
+
+function addSupplierPaid(out, sid, amount, count = 1) {
+  if (sid == null) return;
+  const key = String(sid);
+  if (!out[key]) out[key] = emptySupplierLedgerStats();
+  out[key].paidTotal += Number(amount) || 0;
+  out[key].count += count;
+}
+
+/**
+ * Ledger stats per supplier: purchases (due) minus payments.
+ * Keys are stringified supplier ids.
+ */
+export async function getSupplierLedgerStatsMap(fiscalYearId = null) {
+  const fyId = fiscalYearId != null && fiscalYearId !== "" ? Number(fiscalYearId) : null;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const out = {};
+      for (const t of state?.supplierTxs || []) {
+        if (fyId != null && Number(t.fiscalYearId) !== fyId) continue;
+        const row = mapSupplierTxRow(t);
+        if (row.kind === "due") addSupplierDue(out, row.supplierId, row.amount);
+        else addSupplierPaid(out, row.supplierId, row.amount);
+      }
+      for (const c of state?.clients || []) {
+        if (fyId != null && Number(c.fiscalYearId) !== fyId) continue;
+        for (const t of c.txs || []) {
+          if (t.type !== "expense" || t.supplierId == null) continue;
+          addSupplierDue(out, t.supplierId, t.amount);
+        }
+      }
+      for (const m of state?.stockMovements || []) {
+        if (m.direction === "out" || m.supplierId == null) continue;
+        if (fyId != null && Number(m.fiscalYearId) !== fyId) continue;
+        const qty = Number(m.quantity) || 0;
+        const price = Number(m.unitPrice) || 0;
+        addSupplierDue(out, m.supplierId, qty * price);
+      }
+      return finalizeSupplierLedgerStats(out);
+    }
+    return await runDb(async (database) => {
+      const fy = fyId != null && !Number.isNaN(fyId) ? fyId : await getActiveFiscalYearIdWithDb(database);
+      const ledgerSql =
+        fy != null
+          ? "SELECT supplier_id AS sid, kind, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt FROM supplier_transactions WHERE fiscal_year_id = ? GROUP BY supplier_id, kind"
+          : "SELECT supplier_id AS sid, kind, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt FROM supplier_transactions GROUP BY supplier_id, kind";
+      const clientSql =
+        fy != null
+          ? `SELECT ct.supplier_id AS sid, COALESCE(SUM(ct.amount), 0) AS total, COUNT(*) AS cnt
+             FROM client_transactions ct
+             INNER JOIN clients c ON c.id = ct.client_id
+             WHERE ct.type = 'expense' AND ct.supplier_id IS NOT NULL AND c.fiscal_year_id = ?
+             GROUP BY ct.supplier_id`
+          : `SELECT supplier_id AS sid, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+             FROM client_transactions
+             WHERE type = 'expense' AND supplier_id IS NOT NULL
+             GROUP BY supplier_id`;
+      const stockSql =
+        fy != null
+          ? `SELECT supplier_id AS sid, COALESCE(SUM(quantity * unit_price), 0) AS total, COUNT(*) AS cnt
+             FROM stock_movements
+             WHERE direction = 'in' AND supplier_id IS NOT NULL AND fiscal_year_id = ?
+             GROUP BY supplier_id`
+          : `SELECT supplier_id AS sid, COALESCE(SUM(quantity * unit_price), 0) AS total, COUNT(*) AS cnt
+             FROM stock_movements
+             WHERE direction = 'in' AND supplier_id IS NOT NULL
+             GROUP BY supplier_id`;
+      const [ledgerRows, clientRows, stockRows] = await Promise.all([
+        fy != null ? database.getAllAsync(ledgerSql, fy) : database.getAllAsync(ledgerSql),
+        fy != null ? database.getAllAsync(clientSql, fy) : database.getAllAsync(clientSql),
+        fy != null ? database.getAllAsync(stockSql, fy) : database.getAllAsync(stockSql),
+      ]);
+      const out = {};
+      for (const r of ledgerRows || []) {
+        if (r.kind === "due") addSupplierDue(out, r.sid, r.total, Number(r.cnt) || 0);
+        else addSupplierPaid(out, r.sid, r.total, Number(r.cnt) || 0);
+      }
+      for (const r of clientRows || []) addSupplierDue(out, r.sid, r.total, Number(r.cnt) || 0);
+      for (const r of stockRows || []) addSupplierDue(out, r.sid, r.total, Number(r.cnt) || 0);
+      return finalizeSupplierLedgerStats(out);
+    });
+  } catch (e) {
+    console.warn("DB getSupplierLedgerStatsMap error:", e?.message || e);
+    clearDbOnError(e);
+    return {};
+  }
+}
+
+export async function getSupplierLedger(supplierId, fiscalYearId = null) {
+  const sid = Number(supplierId);
+  const fyId = fiscalYearId != null && fiscalYearId !== "" ? Number(fiscalYearId) : null;
+  const empty = {
+    dueTotal: 0,
+    paidTotal: 0,
+    purchaseTotal: 0,
+    balance: 0,
+    entries: [],
+  };
+  if (!Number.isFinite(sid)) return empty;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const items = {};
+      for (const it of state?.stockItems || []) items[String(it.id)] = it;
+      const ledgerTxs = (state?.supplierTxs || [])
+        .map(mapSupplierTxRow)
+        .filter((t) => Number(t.supplierId) === sid && (fyId == null || Number(t.fiscalYearId) === fyId));
+      const entries = ledgerTxs.map((t) => ({
+        ...t,
+        source: "ledger",
+      }));
+      for (const c of state?.clients || []) {
+        if (fyId != null && Number(c.fiscalYearId) !== fyId) continue;
+        for (const t of c.txs || []) {
+          if (t.type !== "expense" || Number(t.supplierId) !== sid) continue;
+          entries.push({
+            id: `client-${c.id}-${t.id}`,
+            source: "client",
+            clientTxId: t.id,
+            clientId: c.id,
+            clientName: c.name || "",
+            kind: "due",
+            cat: t.cat || "مشتريات",
+            amount: Number(t.amount) || 0,
+            note: t.note || "",
+            date: t.date || "",
+          });
+        }
+      }
+      for (const m of state?.stockMovements || []) {
+        if (Number(m.supplierId) !== sid || m.direction === "out") continue;
+        if (fyId != null && Number(m.fiscalYearId) !== fyId) continue;
+        const item = items[String(m.itemId)] || {};
+        const qty = Number(m.quantity) || 0;
+        const price = Number(m.unitPrice) || 0;
+        entries.push({
+          id: `stock-${m.id}`,
+          source: "stock",
+          stockMovementId: m.id,
+          kind: "due",
+          cat: item.name || "مشتريات",
+          amount: qty * price,
+          note: m.note || "",
+          date: m.date || "",
+          quantity: qty,
+          unit: item.unit || "",
+        });
+      }
+      entries.sort((a, b) => {
+        const d = String(a.date || "").localeCompare(String(b.date || ""));
+        if (d !== 0) return d;
+        return String(a.id).localeCompare(String(b.id));
+      });
+      const dueTotal = entries.filter((t) => t.kind === "due").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      const paidTotal = entries.filter((t) => t.kind !== "due").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      return { dueTotal, paidTotal, purchaseTotal: dueTotal, balance: dueTotal - paidTotal, entries };
+    }
+    return await runDb(async (database) => {
+      const fy = fyId != null && !Number.isNaN(fyId) ? fyId : await getActiveFiscalYearIdWithDb(database);
+      const fyLedger = fy != null ? " AND fiscal_year_id = ?" : "";
+      const fyStock = fy != null ? " AND m.fiscal_year_id = ?" : "";
+      const fyClient = fy != null ? " AND c.fiscal_year_id = ?" : "";
+      const ledgerParams = fy != null ? [sid, fy] : [sid];
+      const stockParams = fy != null ? [sid, fy] : [sid];
+      const clientParams = fy != null ? [sid, fy] : [sid];
+      const [ledgerRows, stockRows, clientRows] = await Promise.all([
+        database.getAllAsync(
+          `SELECT id, supplier_id, kind, amount, cat, note, date, fiscal_year_id
+           FROM supplier_transactions WHERE supplier_id = ?${fyLedger} ORDER BY date, id`,
+          ...ledgerParams
+        ),
+        database.getAllAsync(
+          `SELECT m.id, m.date, m.quantity, m.unit_price, m.note, i.name AS item_name, i.unit
+           FROM stock_movements m
+           LEFT JOIN stock_items i ON i.id = m.item_id
+           WHERE m.supplier_id = ? AND m.direction = 'in'${fyStock}
+           ORDER BY m.date, m.id`,
+          ...stockParams
+        ),
+        database.getAllAsync(
+          `SELECT ct.id, ct.client_id, ct.date, ct.amount, ct.cat, ct.note, c.name AS client_name
+           FROM client_transactions ct
+           INNER JOIN clients c ON c.id = ct.client_id
+           WHERE ct.supplier_id = ? AND ct.type = 'expense'${fyClient}
+           ORDER BY ct.date, ct.id`,
+          ...clientParams
+        ),
+      ]);
+      const entries = (ledgerRows || []).map((r) => ({ ...mapSupplierTxRow(r), source: "ledger" }));
+      for (const r of stockRows || []) {
+        const qty = Number(r.quantity) || 0;
+        entries.push({
+          id: `stock-${r.id}`,
+          source: "stock",
+          stockMovementId: r.id,
+          kind: "due",
+          cat: r.item_name || "مشتريات",
+          amount: qty * (Number(r.unit_price) || 0),
+          note: r.note || "",
+          date: r.date || "",
+          quantity: qty,
+          unit: r.unit || "",
+        });
+      }
+      for (const r of clientRows || []) {
+        entries.push({
+          id: `client-${r.client_id}-${r.id}`,
+          source: "client",
+          clientTxId: r.id,
+          clientId: r.client_id,
+          clientName: r.client_name || "",
+          kind: "due",
+          cat: r.cat || "مشتريات",
+          amount: Number(r.amount) || 0,
+          note: r.note || "",
+          date: r.date || "",
+        });
+      }
+      entries.sort((a, b) => {
+        const d = String(a.date || "").localeCompare(String(b.date || ""));
+        if (d !== 0) return d;
+        return String(a.id).localeCompare(String(b.id));
+      });
+      const dueTotal = entries.filter((t) => t.kind === "due").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      const paidTotal = entries.filter((t) => t.kind !== "due").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      return { dueTotal, paidTotal, purchaseTotal: dueTotal, balance: dueTotal - paidTotal, entries };
+    });
+  } catch (e) {
+    console.warn("DB getSupplierLedger error:", e?.message || e);
+    return empty;
+  }
+}
+
+export async function upsertSupplierTx(tx) {
+  if (tx == null || tx.id == null || tx.supplierId == null) return;
+  const row = mapSupplierTxRow(tx);
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return;
+      const supplierTxs = [...(state.supplierTxs || [])];
+      const i = supplierTxs.findIndex((t) => String(t.id) === String(row.id));
+      if (i >= 0) supplierTxs[i] = row;
+      else supplierTxs.push(row);
+      await setWebState({ ...state, supplierTxs });
+      return;
+    }
+    await runDb((database) =>
+      database.runAsync(
+        "INSERT OR REPLACE INTO supplier_transactions (id, supplier_id, kind, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        row.id,
+        row.supplierId,
+        row.kind,
+        row.amount,
+        row.cat || "",
+        row.note || "",
+        row.date || "",
+        row.fiscalYearId ?? null
+      )
+    );
+  } catch (e) {
+    if (e?.message && !e.message.includes("Native module is null")) {
+      console.error("DB upsertSupplierTx error:", e.message);
+    }
+    clearDbOnError(e);
+    throw e;
+  }
+}
+
+export async function deleteSupplierTx(id) {
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      if (!state) return;
+      const supplierTxs = (state.supplierTxs || []).filter((t) => String(t.id) !== String(id));
+      await setWebState({ ...state, supplierTxs });
+      return;
+    }
+    await runDb((database) => database.runAsync("DELETE FROM supplier_transactions WHERE id = ?", id));
+  } catch (e) {
+    if (e?.message && !e.message.includes("Native module is null")) {
+      console.error("DB deleteSupplierTx error:", e.message);
+    }
+    clearDbOnError(e);
+    throw e;
+  }
+}
+
 /** Get settings only (nissabPrice). Fiscal years come from fiscal_years table. On web reads nissabPrice from AsyncStorage. */
 export async function getSettings() {
   try {
@@ -2011,6 +2361,7 @@ export async function saveState(data) {
         customFYs: data.customFYs || [],
         nissabPrice: data.nissabPrice != null ? data.nissabPrice : 85000,
         workerTxs: data.workerTxs || [],
+        supplierTxs: data.supplierTxs || [],
       });
       return;
     }
@@ -2072,6 +2423,19 @@ export async function saveState(data) {
           s.name || "",
           s.phone || "",
           s.category || ""
+        );
+      }
+      for (const t of data.supplierTxs || []) {
+        await database.runAsync(
+          "INSERT OR REPLACE INTO supplier_transactions (id, supplier_id, kind, amount, cat, note, date, fiscal_year_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          t.id,
+          t.supplierId,
+          t.kind === "due" ? "due" : "payout",
+          t.amount,
+          t.cat || "",
+          t.note || "",
+          t.date || "",
+          t.fiscalYearId ?? null
         );
       }
       if (data.activeFY != null) {
@@ -2444,7 +2808,8 @@ export async function deleteSupplier(id) {
       const hasClientTx = (state.clients || []).some((c) =>
         (c.txs || []).some((t) => String(t.supplierId) === String(id))
       );
-      throwIfBlocked(hasStock || hasClientTx, SUPPLIER_DELETE_BLOCKED_MSG);
+      const hasLedger = (state.supplierTxs || []).some((t) => String(t.supplierId) === String(id));
+      throwIfBlocked(hasStock || hasClientTx || hasLedger, SUPPLIER_DELETE_BLOCKED_MSG);
       const suppliers = (state.suppliers || []).filter((s) => String(s.id) !== String(id));
       await setWebState({ ...state, suppliers });
       return;
@@ -2460,7 +2825,14 @@ export async function deleteSupplier(id) {
             "SELECT id FROM client_transactions WHERE supplier_id = ? LIMIT 1",
             id
           );
-      throwIfBlocked(!!mov || !!clientTx, SUPPLIER_DELETE_BLOCKED_MSG);
+      const ledgerTx =
+        mov || clientTx
+          ? null
+          : await database.getFirstAsync(
+              "SELECT id FROM supplier_transactions WHERE supplier_id = ? LIMIT 1",
+              id
+            );
+      throwIfBlocked(!!mov || !!clientTx || !!ledgerTx, SUPPLIER_DELETE_BLOCKED_MSG);
       await database.runAsync("DELETE FROM suppliers WHERE id = ?", id);
     });
   } catch (e) {
@@ -2487,6 +2859,7 @@ export async function setSettings(settings) {
         stockItems: (state && state.stockItems) || [],
         stockMovements: (state && state.stockMovements) || [],
         workerTxs: (state && state.workerTxs) || [],
+        supplierTxs: (state && state.supplierTxs) || [],
         activeFY: state && state.activeFY,
         activeFiscalYearId: state && state.activeFiscalYearId,
         customFYs: state && state.customFYs,
@@ -3218,6 +3591,7 @@ async function restoreWebStateFromJsonBackup(bytes) {
     stockItems: payload.stockItems || [],
     stockMovements: payload.stockMovements || [],
     workerTxs: payload.workerTxs || [],
+    supplierTxs: payload.supplierTxs || [],
   });
 }
 
@@ -3299,6 +3673,7 @@ export async function getDatabaseBackupPayload() {
         stockItems: state.stockItems || [],
         stockMovements: state.stockMovements || [],
         workerTxs: state.workerTxs || [],
+        supplierTxs: state.supplierTxs || [],
       };
       const json = JSON.stringify(payload);
       return { bytes: new TextEncoder().encode(json), extension: "json" };
