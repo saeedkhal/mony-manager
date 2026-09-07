@@ -594,7 +594,9 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                       style={[styles.stockTableCellName, { color: isIncome ? "#818cf8" : "#fb923c" }]}
                       numberOfLines={1}
                     >
-                      {tx.cat || (isIncome ? "دفعة" : "مصروف")}
+                      {tx.stockMovementId != null
+                        ? "مخزن"
+                        : tx.cat || (isIncome ? "دفعة" : "مصروف")}
                     </Text>
                   </View>
                   <View style={[styles.stockTableCol, styles.stockTableColPhone]}>

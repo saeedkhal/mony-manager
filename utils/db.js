@@ -851,6 +851,8 @@ export async function getDeliveryDatesPage(limit = DELIVERIES_PAGE_DEFAULT, offs
 
 export const CLIENT_SELECT_DEFAULT_LIMIT = 5;
 export const CLIENT_SELECT_MIN_CHARS = 3;
+export const STOCK_ITEM_SELECT_DEFAULT_LIMIT = 5;
+export const STOCK_ITEM_SELECT_MIN_CHARS = 3;
 
 /**
  * Lightweight client picker rows (id + name + phone, no transactions).
@@ -889,6 +891,70 @@ export async function searchClientsForSelect(query = "", limit = CLIENT_SELECT_D
     });
   } catch (e) {
     console.warn("DB searchClientsForSelect error:", e?.message || e);
+    return [];
+  }
+}
+
+function stockItemNameMatches(item, q) {
+  const low = String(q || "").toLowerCase();
+  if (!low) return true;
+  return String(item?.name || "").toLowerCase().includes(low);
+}
+
+/**
+ * Lightweight stock-item picker rows (id + name + unit + quantity).
+ * Empty query → first `limit` items by name. Query of 3+ chars → name contains match.
+ */
+export async function searchStockItemsForSelect(query = "", limit = STOCK_ITEM_SELECT_DEFAULT_LIMIT) {
+  const lim = Math.min(20, Math.max(1, Math.floor(Number(limit)) || STOCK_ITEM_SELECT_DEFAULT_LIMIT));
+  const q = typeof query === "string" ? String(query).trim() : "";
+  const useSearch = q.length >= STOCK_ITEM_SELECT_MIN_CHARS;
+  const mapRow = (item, quantity) => ({
+    id: item.id,
+    name: item.name || "",
+    unit: item.unit,
+    quantity: Number(quantity) || 0,
+  });
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let all = (state?.stockItems || []).map(mapStockItemRow);
+      if (useSearch) all = all.filter((i) => stockItemNameMatches(i, q));
+      all.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"));
+      const slice = all.slice(0, lim);
+      const movements = state?.stockMovements || [];
+      return slice.map((item) => {
+        const itemMovs = movements.filter((m) => Number(m.itemId) === Number(item.id));
+        return mapRow(item, computeStockBalance(itemMovs).quantity);
+      });
+    }
+    return await runDb(async (database) => {
+      const nameClause = useSearch ? " WHERE instr(lower(name), lower(?)) > 0" : "";
+      const sqlWithPrice = `SELECT id, name, unit, expense_cat, unit_price FROM stock_items${nameClause} ORDER BY name LIMIT ?`;
+      const sqlNoPrice = `SELECT id, name, unit, expense_cat FROM stock_items${nameClause} ORDER BY name LIMIT ?`;
+      const params = useSearch ? [q, lim] : [lim];
+      let rows;
+      try {
+        rows = await database.getAllAsync(sqlWithPrice, ...params);
+      } catch (_) {
+        rows = await database.getAllAsync(sqlNoPrice, ...params);
+      }
+      const items = (rows || []).map(mapStockItemRow);
+      if (!items.length) return [];
+      const ids = items.map((i) => i.id);
+      const placeholders = ids.map(() => "?").join(",");
+      const movRows = await database.getAllAsync(
+        `SELECT item_id, direction, quantity, unit_price, date, id FROM stock_movements WHERE item_id IN (${placeholders})`,
+        ...ids
+      );
+      const movs = (movRows || []).map(mapStockMovementRow);
+      return items.map((item) => {
+        const itemMovs = movs.filter((m) => Number(m.itemId) === Number(item.id));
+        return mapRow(item, computeStockBalance(itemMovs).quantity);
+      });
+    });
+  } catch (e) {
+    console.warn("DB searchStockItemsForSelect error:", e?.message || e);
     return [];
   }
 }
@@ -2812,7 +2878,7 @@ export async function recordStockIssue({
     id: clientTxId,
     type: "expense",
     amount,
-    cat: item.expenseCat || "أخرى",
+    cat: "مخزن",
     note: noteText,
     date: issueDate,
     supplierId: supplierId ?? null,
@@ -3019,7 +3085,7 @@ function patchStockMovement(mov, itemMovements, item, { qty, unitPrice, supplier
     id: mov.clientTxId,
     type: "expense",
     amount,
-    cat: item?.expenseCat || "أخرى",
+    cat: "مخزن",
     note: noteText,
     date: nextDate,
     supplierId: mov.supplierId ?? null,

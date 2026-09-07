@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getSuppliers, getWorkers, getClientWithTxs, upsertClient, getStockItemsWithBalance, recordStockPurchase, getSupplierPurchaseHistory } from "../utils/db";
+import { getSuppliers, getWorkers, getClientWithTxs, upsertClient, recordStockPurchase, getSupplierPurchaseHistory } from "../utils/db";
 import { CURRENCY, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
 import { getStockUnitLabel } from "../utils/stockHelpers";
@@ -12,6 +12,7 @@ import CustomModal from "../components/Modal";
 import FormDateField from "../components/FormDateField";
 import FormTextInput from "../components/FormTextInput";
 import ClientSearchSelect from "../components/ClientSearchSelect";
+import StockItemSearchSelect from "../components/StockItemSearchSelect";
 
 function normalizeSupplierDetailDateRange(fromRaw, toRaw) {
   const f = trimmed(fromRaw);
@@ -53,8 +54,6 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
   const [loading, setLoading] = useState(true);
   const [txWorkers, setTxWorkers] = useState([]);
   const [txSuppliers, setTxSuppliers] = useState([]);
-  const [stockBalances, setStockBalances] = useState([]);
-  const [showStockItemPicker, setShowStockItemPicker] = useState(false);
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [dateFiltersExpanded, setDateFiltersExpanded] = useState(false);
@@ -107,19 +106,17 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
   useEffect(() => {
     if (!loaded || (modal !== "addClientTx" && modal !== "addSupplierTx")) return;
     let cancelled = false;
-    Promise.all([getWorkers(), getSuppliers(), getStockItemsWithBalance()])
-      .then(([w, s, stock]) => {
+    Promise.all([getWorkers(), getSuppliers()])
+      .then(([w, s]) => {
         if (!cancelled) {
           setTxWorkers(w || []);
           setTxSuppliers(s || []);
-          setStockBalances(stock || []);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setTxWorkers([]);
           setTxSuppliers([]);
-          setStockBalances([]);
         }
       });
     return () => { cancelled = true; };
@@ -150,16 +147,9 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
           note: form.note || "",
           fiscalYearId: activeFiscalYearId,
         });
-        const [sup, stock] = await Promise.all([
-          getSuppliers(),
-          getStockItemsWithBalance(),
-        ]);
-        setSuppliers(sup || []);
-        setStockBalances(stock || []);
         await reloadSupplierDetail();
         setModal(null);
         setShowClientPicker(false);
-        setShowStockItemPicker(false);
         setForm({});
       } catch (_) {
         setFormErrors({ submit: "تعذر توريد المخزن" });
@@ -256,12 +246,9 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
 
   const activeClientTxName = form.clientName;
 
-  const selectedStockItemLabel = useMemo(() => {
-    if (!form.itemId) return "-- اختر الصنف --";
-    const b = stockBalances.find((x) => x.item.id === form.itemId);
-    if (!b) return "-- اختر الصنف --";
-    return `${b.item.name} — رصيد ${fmt(b.quantity)} ${getStockUnitLabel(b.item.unit)}`;
-  }, [form.itemId, stockBalances]);
+  const selectedStockItemLabel = form.itemName
+    ? `${form.itemName} — رصيد ${fmt(form.itemQty)} ${getStockUnitLabel(form.itemUnit)}`
+    : "";
 
   if (!selectedSupplier) return null;
   if (loading) {
@@ -331,18 +318,11 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
             style={[styles.btn, styles.btnSupplier, { width: "100%", marginBottom: 20 }]}
             onPress={async () => {
               setFormErrors({});
-              setShowStockItemPicker(false);
-              let stock = stockBalances;
-              try {
-                stock = await getStockItemsWithBalance();
-                setStockBalances(stock || []);
-              } catch (_) {}
               setForm({
                 txType: "expense",
                 cat: activeSupplier.category || "قماش",
                 supplierId: activeSupplier.id,
                 destination: "warehouse",
-                itemId: (stock || [])[0]?.item?.id,
                 date: new Date().toISOString().split("T")[0],
               });
               setModal("addSupplierTx");
@@ -725,7 +705,6 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
           setFormErrors({});
           setModal(null);
           setShowClientPicker(false);
-          setShowStockItemPicker(false);
         }}
       >
         <Text style={styles.modalTitle}>
@@ -746,13 +725,16 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
               onPress={() => {
                 setFormErrors({});
                 setShowClientPicker(false);
-                setShowStockItemPicker(false);
                 setForm((p) => ({
                   ...p,
                   destination: "warehouse",
                   clientId: null,
+                  clientName: undefined,
                   amount: undefined,
-                  itemId: stockBalances[0]?.item?.id,
+                  itemId: undefined,
+                  itemName: undefined,
+                  itemUnit: undefined,
+                  itemQty: undefined,
                 }));
               }}
             >
@@ -769,11 +751,13 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
               ]}
               onPress={() => {
                 setFormErrors({});
-                setShowStockItemPicker(false);
                 setForm((p) => ({
                   ...p,
                   destination: "client",
                   itemId: undefined,
+                  itemName: undefined,
+                  itemUnit: undefined,
+                  itemQty: undefined,
                   quantity: undefined,
                   unitPrice: undefined,
                 }));
@@ -792,65 +776,28 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
           <>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>الصنف</Text>
-              {stockBalances.length === 0 ? (
-                <Text style={{ color: "#94a3b8", marginBottom: 8 }}>
-                  لا توجد أصناف — أضف صنفاً من تبويب «المخزن» أولاً.
-                </Text>
-              ) : (
-                <View style={styles.pickerContainer}>
-                  <TouchableOpacity
-                    style={[styles.pickerBtn, formErrors.itemId ? styles.inputError : null]}
-                    onPress={() => setShowStockItemPicker((p) => !p)}
-                  >
-                    <Text
-                      style={[styles.pickerBtnText, form.itemId && { color: "#818cf8" }]}
-                      numberOfLines={1}
-                    >
-                      {selectedStockItemLabel}
-                    </Text>
-                    <Text style={styles.pickerBtnArrow}>▾</Text>
-                  </TouchableOpacity>
-                  {showStockItemPicker && (
-                    <View style={styles.pickerDropdown}>
-                      <ScrollView style={styles.pickerList} nestedScrollEnabled keyboardShouldPersistTaps="always">
-                        {stockBalances.map((b) => (
-                          <TouchableOpacity
-                            key={b.item.id}
-                            style={[
-                              styles.pickerItem,
-                              form.itemId === b.item.id && styles.pickerItemActive,
-                            ]}
-                            onPress={() => {
-                              setFormErrors((e) => ({ ...e, itemId: undefined }));
-                              setForm((p) => ({ ...p, itemId: b.item.id }));
-                              setShowStockItemPicker(false);
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.pickerItemText,
-                                form.itemId === b.item.id && styles.pickerItemTextActive,
-                              ]}
-                            >
-                              {b.item.name} — رصيد {fmt(b.quantity)} {getStockUnitLabel(b.item.unit)}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-              )}
-              {formErrors.itemId ? <Text style={styles.fieldErrorText}>{formErrors.itemId}</Text> : null}
+              <StockItemSearchSelect
+                styles={styles}
+                value={form.itemId}
+                selectedLabel={selectedStockItemLabel}
+                error={formErrors.itemId}
+                active={modal === "addSupplierTx" && form.destination === "warehouse"}
+                onChange={(item) => {
+                  setFormErrors((e) => ({ ...e, itemId: undefined }));
+                  setForm((p) => ({
+                    ...p,
+                    itemId: item?.id ?? null,
+                    itemName: item?.name ?? "",
+                    itemUnit: item?.unit,
+                    itemQty: item?.quantity,
+                  }));
+                }}
+              />
             </View>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>
                 الكمية
-                {form.itemId
-                  ? ` (${getStockUnitLabel(
-                      stockBalances.find((b) => b.item.id === form.itemId)?.item?.unit
-                    )})`
-                  : ""}
+                {form.itemUnit ? ` (${getStockUnitLabel(form.itemUnit)})` : ""}
               </Text>
               <FormTextInput
                 styles={styles}
