@@ -8,10 +8,26 @@ import {
   getStockUnitLabel,
   displayUnitCost,
 } from "./stockHelpers";
+import { normalizeDeliveryDate, normalizeReminderDays } from "./deliveryReminders";
 
 const IS_WEB = Platform.OS === "web";
 const DB_NAME = "mall_v4.db";
 const WEB_STORAGE_KEY = "mall_v4";
+
+export const DELETE_BLOCKED = "DELETE_BLOCKED";
+const CLIENT_DELETE_BLOCKED_MSG =
+  "لا يمكن حذف العميل لوجود عمليات مسجّلة عليه. امسح العمليات أولاً ثم حاول مرة أخرى.";
+const WORKER_DELETE_BLOCKED_MSG =
+  "لا يمكن حذف الصنايعي لوجود عمليات مسجّلة عليه. امسح العمليات أولاً ثم حاول مرة أخرى.";
+const SUPPLIER_DELETE_BLOCKED_MSG =
+  "لا يمكن حذف المورد لوجود عمليات مسجّلة عليه. امسح العمليات أولاً ثم حاول مرة أخرى.";
+
+function throwIfBlocked(blocked, message) {
+  if (!blocked) return;
+  const err = new Error(message);
+  err.code = DELETE_BLOCKED;
+  throw err;
+}
 
 // Web: read full state from AsyncStorage (same shape as getFullState)
 async function getWebState() {
@@ -163,7 +179,9 @@ async function initSchema(database) {
       created_at TEXT,
       fiscal_year_id INTEGER REFERENCES fiscal_years(id),
       order_amount REAL,
-      phone TEXT
+      phone TEXT,
+      delivery_date TEXT,
+      reminder_days INTEGER
     );
     CREATE TABLE IF NOT EXISTS client_transactions (
       id INTEGER PRIMARY KEY NOT NULL,
@@ -243,6 +261,12 @@ async function migrateClientsSchema(database) {
     }
     if (!names.has("phone")) {
       await database.execAsync("ALTER TABLE clients ADD COLUMN phone TEXT");
+    }
+    if (!names.has("delivery_date")) {
+      await database.execAsync("ALTER TABLE clients ADD COLUMN delivery_date TEXT");
+    }
+    if (!names.has("reminder_days")) {
+      await database.execAsync("ALTER TABLE clients ADD COLUMN reminder_days INTEGER");
     }
   } catch (e) {
     console.warn("migrateClientsSchema:", e?.message || e);
@@ -498,18 +522,42 @@ export async function getActiveFiscalYearId() {
   }
 }
 
+const CLIENT_ROW_SELECT =
+  "id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone, delivery_date, reminder_days";
+
+function clientWriteValues(c) {
+  const deliveryDate = normalizeDeliveryDate(c.deliveryDate);
+  return [
+    c.id,
+    c.name || "",
+    c.project || "",
+    c.status || "active",
+    c.note || "",
+    c.createdAt || "",
+    c.fiscalYearId ?? null,
+    c.orderAmount != null && Number(c.orderAmount) > 0 ? Number(c.orderAmount) : null,
+    c.phone || "",
+    deliveryDate,
+    normalizeReminderDays(c.reminderDays, deliveryDate),
+  ];
+}
+
 function rowToClient(c, txRows) {
   const orderRaw = c.order_amount != null ? c.order_amount : c.orderAmount;
+  const deliveryDate = normalizeDeliveryDate(c.delivery_date != null ? c.delivery_date : c.deliveryDate);
+  const reminderRaw = c.reminder_days != null ? c.reminder_days : c.reminderDays;
   return {
     id: c.id,
     name: c.name,
     project: c.project || "",
     status: c.status || "active",
     note: c.note || "",
-    fiscalYearId: c.fiscal_year_id != null ? c.fiscal_year_id : null,
-    createdAt: c.created_at || "",
+    fiscalYearId: c.fiscal_year_id != null ? c.fiscal_year_id : c.fiscalYearId != null ? c.fiscalYearId : null,
+    createdAt: c.created_at || c.createdAt || "",
     phone: c.phone || "",
     orderAmount: orderRaw != null && orderRaw !== "" ? Number(orderRaw) : null,
+    deliveryDate,
+    reminderDays: normalizeReminderDays(reminderRaw, deliveryDate),
     txs: (txRows || [])
       .filter((t) => t.client_id === c.id)
       .map((t) => ({
@@ -553,7 +601,7 @@ export async function getFullState() {
     if (IS_WEB) return getWebState();
     return await runDb(async (database) => {
       const clientsRows = await database.getAllAsync(
-        "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients ORDER BY id DESC"
+        `SELECT ${CLIENT_ROW_SELECT} FROM clients ORDER BY id DESC`
       );
       const txRows = await database.getAllAsync(
         `SELECT ${CLIENT_TX_SELECT} FROM client_transactions ORDER BY client_id, id`
@@ -630,8 +678,8 @@ export async function getClients() {
       const fyId = await getActiveFiscalYearIdWithDb(database);
       const sql =
         fyId != null
-          ? "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE fiscal_year_id = ? ORDER BY id DESC"
-          : "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients ORDER BY id DESC";
+          ? `SELECT ${CLIENT_ROW_SELECT} FROM clients WHERE fiscal_year_id = ? ORDER BY id DESC`
+          : `SELECT ${CLIENT_ROW_SELECT} FROM clients ORDER BY id DESC`;
       const clientsRows =
         fyId != null
           ? await database.getAllAsync(sql, fyId)
@@ -698,13 +746,13 @@ export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, o
       let countSql;
       let baseParams;
       if (fyId != null) {
-        sqlBase = `SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC`;
+        sqlBase = `SELECT ${CLIENT_ROW_SELECT} FROM clients WHERE fiscal_year_id = ?${nameClause} ORDER BY id DESC`;
         countSql = `SELECT COUNT(*) AS n FROM clients WHERE fiscal_year_id = ?${nameClause}`;
         baseParams = useNameFilter ? [fyId, nameQ, nameQ] : [fyId];
       } else {
         sqlBase = useNameFilter
-          ? `SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE ${CLIENT_SEARCH_NAME_OR_PHONE} ORDER BY id DESC`
-          : "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients ORDER BY id DESC";
+          ? `SELECT ${CLIENT_ROW_SELECT} FROM clients WHERE ${CLIENT_SEARCH_NAME_OR_PHONE} ORDER BY id DESC`
+          : `SELECT ${CLIENT_ROW_SELECT} FROM clients ORDER BY id DESC`;
         countSql = useNameFilter
           ? `SELECT COUNT(*) AS n FROM clients WHERE ${CLIENT_SEARCH_NAME_OR_PHONE}`
           : "SELECT COUNT(*) AS n FROM clients";
@@ -732,6 +780,72 @@ export async function getClientsPage(limit = CLIENTS_PAGE_DEFAULT, offset = 0, o
     console.warn("DB getClientsPage error:", e?.message || e);
     clearDbOnError(e);
     return { clients: [], hasMore: false, total: 0 };
+  }
+}
+
+const DELIVERIES_PAGE_DEFAULT = 5;
+
+function clientHasDeliveryDate(c) {
+  return !!normalizeDeliveryDate(c.deliveryDate || c.delivery_date);
+}
+
+function sortClientsByDeliveryDate(a, b) {
+  const da = normalizeDeliveryDate(a.deliveryDate || a.delivery_date) || "";
+  const db = normalizeDeliveryDate(b.deliveryDate || b.delivery_date) || "";
+  const cmp = da.localeCompare(db);
+  if (cmp !== 0) return cmp;
+  return Number(a.id) - Number(b.id);
+}
+
+/**
+ * Paginated clients that have a delivery date, soonest first.
+ * @returns {Promise<{ clients: Array<object>, total: number }>}
+ */
+export async function getDeliveryDatesPage(limit = DELIVERIES_PAGE_DEFAULT, offset = 0, fiscalYearId = null) {
+  const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || DELIVERIES_PAGE_DEFAULT));
+  const off = Math.max(0, Math.floor(Number(offset)) || 0);
+  const fyId = fiscalYearId != null && fiscalYearId !== "" ? Number(fiscalYearId) : null;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      let all = (state?.clients || []).filter(clientHasDeliveryDate);
+      if (fyId != null && !Number.isNaN(fyId)) {
+        all = all.filter((c) => Number(c.fiscalYearId) === fyId);
+      }
+      all.sort(sortClientsByDeliveryDate);
+      const rows = all.slice(off, off + lim);
+      return {
+        clients: rows.map((c) => ({
+          ...c,
+          deliveryDate: normalizeDeliveryDate(c.deliveryDate),
+          txs: [],
+        })),
+        total: all.length,
+      };
+    }
+    return await runDb(async (database) => {
+      const fy = fyId != null && !Number.isNaN(fyId) ? fyId : await getActiveFiscalYearIdWithDb(database);
+      const fyClause = fy != null ? " AND fiscal_year_id = ?" : "";
+      const where = `WHERE delivery_date IS NOT NULL AND delivery_date != ''${fyClause}`;
+      const params = fy != null ? [fy] : [];
+      const [countRow, rows] = await Promise.all([
+        database.getFirstAsync(`SELECT COUNT(*) AS n FROM clients ${where}`, ...params),
+        database.getAllAsync(
+          `SELECT ${CLIENT_ROW_SELECT} FROM clients ${where} ORDER BY delivery_date ASC, id ASC LIMIT ? OFFSET ?`,
+          ...params,
+          lim,
+          off
+        ),
+      ]);
+      return {
+        clients: (rows || []).map((c) => rowToClient(c, [])),
+        total: Number(countRow?.n) || 0,
+      };
+    });
+  } catch (e) {
+    console.warn("DB getDeliveryDatesPage error:", e?.message || e);
+    clearDbOnError(e);
+    return { clients: [], total: 0 };
   }
 }
 
@@ -821,7 +935,7 @@ export async function getClientWithTxs(clientId) {
     }
     return await runDb(async (database) => {
       const clientRows = await database.getAllAsync(
-        "SELECT id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone FROM clients WHERE id = ?",
+        `SELECT ${CLIENT_ROW_SELECT} FROM clients WHERE id = ?`,
         clientId
       );
       if (clientRows.length === 0) return null;
@@ -1535,13 +1649,12 @@ function mapSupplierRow(r) {
 
 /**
  * Paginated suppliers, newest first (`ORDER BY id DESC`).
- * @param {{ nameContains?: string }} [options] — optional case-insensitive substring match on `name`
- * @returns {Promise<{ suppliers: Array<object>, hasMore: boolean }>}
+ * @param {{ nameContains?: string }} [options] — optional substring match on name or phone
+ * @returns {Promise<{ suppliers: Array<object>, hasMore: boolean, total: number }>}
  */
 export async function getSuppliersPage(limit = SUPPLIERS_PAGE_DEFAULT, offset = 0, options = {}) {
   const lim = Math.min(50, Math.max(1, Math.floor(Number(limit)) || SUPPLIERS_PAGE_DEFAULT));
   const off = Math.max(0, Math.floor(Number(offset)) || 0);
-  const take = lim + 1;
   const nameQ =
     typeof options.nameContains === "string" ? String(options.nameContains).trim() : "";
   const useNameFilter = nameQ.length > 0;
@@ -1550,13 +1663,10 @@ export async function getSuppliersPage(limit = SUPPLIERS_PAGE_DEFAULT, offset = 
       const state = await getWebState();
       let all = [...(state?.suppliers || [])];
       if (useNameFilter) {
-        const low = nameQ.toLowerCase();
-        all = all.filter((s) => (s.name || "").toLowerCase().includes(low));
+        all = all.filter((s) => clientMatchesNameOrPhone(s, nameQ));
       }
       all.sort((a, b) => Number(b.id) - Number(a.id));
-      const slice = all.slice(off, off + take);
-      const hasMore = slice.length > lim;
-      const rows = hasMore ? slice.slice(0, lim) : slice;
+      const rows = all.slice(off, off + lim);
       return {
         suppliers: rows.map((s) => ({
           id: s.id,
@@ -1564,28 +1674,30 @@ export async function getSuppliersPage(limit = SUPPLIERS_PAGE_DEFAULT, offset = 
           phone: s.phone || "",
           category: s.category || "",
         })),
-        hasMore,
+        hasMore: off + rows.length < all.length,
+        total: all.length,
       };
     }
     return await runDb(async (database) => {
-      const sqlBase = useNameFilter
-        ? "SELECT id, name, phone, category FROM suppliers WHERE instr(lower(name), lower(?)) > 0 ORDER BY id DESC"
-        : "SELECT id, name, phone, category FROM suppliers ORDER BY id DESC";
-      const baseParams = useNameFilter ? [nameQ] : [];
-      const rows = await database.getAllAsync(
-        `${sqlBase} LIMIT ? OFFSET ?`,
-        ...baseParams,
-        take,
-        off
-      );
-      const hasMore = rows.length > lim;
-      const pageRows = hasMore ? rows.slice(0, lim) : rows;
-      return { suppliers: pageRows.map((r) => mapSupplierRow(r)), hasMore };
+      const searchClause = useNameFilter ? ` WHERE ${CLIENT_SEARCH_NAME_OR_PHONE}` : "";
+      const sqlBase = `SELECT id, name, phone, category FROM suppliers${searchClause} ORDER BY id DESC`;
+      const countSql = `SELECT COUNT(*) AS n FROM suppliers${searchClause}`;
+      const baseParams = useNameFilter ? [nameQ, nameQ] : [];
+      const [countRow, rows] = await Promise.all([
+        database.getFirstAsync(countSql, ...baseParams),
+        database.getAllAsync(`${sqlBase} LIMIT ? OFFSET ?`, ...baseParams, lim, off),
+      ]);
+      const total = Number(countRow?.n) || 0;
+      return {
+        suppliers: (rows || []).map((r) => mapSupplierRow(r)),
+        hasMore: off + (rows || []).length < total,
+        total,
+      };
     });
   } catch (e) {
     console.warn("DB getSuppliersPage error:", e?.message || e);
     clearDbOnError(e);
-    return { suppliers: [], hasMore: false };
+    return { suppliers: [], hasMore: false, total: 0 };
   }
 }
 
@@ -1598,36 +1710,176 @@ export async function getSupplierPurchaseStatsMap() {
     if (IS_WEB) {
       const state = await getWebState();
       const out = {};
+      const add = (sid, amount) => {
+        if (sid == null) return;
+        const key = String(sid);
+        if (!out[key]) out[key] = { total: 0, count: 0 };
+        out[key].total += Number(amount) || 0;
+        out[key].count += 1;
+      };
       for (const c of state?.clients || []) {
         for (const t of c.txs || []) {
           if (t.type !== "expense" || t.supplierId == null) continue;
-          const sid = String(t.supplierId);
-          if (!out[sid]) out[sid] = { total: 0, count: 0 };
-          out[sid].total += Number(t.amount) || 0;
-          out[sid].count += 1;
+          add(t.supplierId, t.amount);
         }
+      }
+      for (const m of state?.stockMovements || []) {
+        if (m.direction === "out" || m.supplierId == null) continue;
+        const qty = Number(m.quantity) || 0;
+        const price = Number(m.unitPrice) || 0;
+        add(m.supplierId, qty * price);
       }
       return out;
     }
     return await runDb(async (database) => {
-      const rows = await database.getAllAsync(
-        `SELECT supplier_id AS sid, COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
-         FROM client_transactions
-         WHERE type = 'expense' AND supplier_id IS NOT NULL
-         GROUP BY supplier_id`
-      );
+      const [txRows, stockRows] = await Promise.all([
+        database.getAllAsync(
+          `SELECT supplier_id AS sid, COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
+           FROM client_transactions
+           WHERE type = 'expense' AND supplier_id IS NOT NULL
+           GROUP BY supplier_id`
+        ),
+        database.getAllAsync(
+          `SELECT supplier_id AS sid, COUNT(*) AS cnt,
+                  COALESCE(SUM(quantity * unit_price), 0) AS total
+           FROM stock_movements
+           WHERE direction = 'in' AND supplier_id IS NOT NULL
+           GROUP BY supplier_id`
+        ),
+      ]);
       const out = {};
-      for (const r of rows || []) {
-        if (r.sid == null) continue;
+      const add = (r) => {
+        if (r?.sid == null) return;
         const key = String(r.sid);
-        out[key] = { total: Number(r.total) || 0, count: Number(r.cnt) || 0 };
-      }
+        if (!out[key]) out[key] = { total: 0, count: 0 };
+        out[key].total += Number(r.total) || 0;
+        out[key].count += Number(r.cnt) || 0;
+      };
+      for (const r of txRows || []) add(r);
+      for (const r of stockRows || []) add(r);
       return out;
     });
   } catch (e) {
     console.warn("DB getSupplierPurchaseStatsMap error:", e?.message || e);
     clearDbOnError(e);
     return {};
+  }
+}
+
+function sortSupplierPurchaseRows(a, b) {
+  const d = String(b.date || "").localeCompare(String(a.date || ""));
+  if (d !== 0) return d;
+  return String(b.id).localeCompare(String(a.id));
+}
+
+/**
+ * Purchase history for one supplier: warehouse inbound movements + client expenses.
+ * @returns {Promise<Array<{ id: string, source: 'stock'|'client', date: string, material: string, unit: string, quantity: number, amount: number, detail: string }>>}
+ */
+export async function getSupplierPurchaseHistory(supplierId, options = {}) {
+  if (supplierId == null) return [];
+  const sid = supplierId;
+  const fyId =
+    options.fiscalYearId != null && options.fiscalYearId !== ""
+      ? Number(options.fiscalYearId)
+      : null;
+  try {
+    if (IS_WEB) {
+      const state = await getWebState();
+      const items = {};
+      for (const it of state?.stockItems || []) items[String(it.id)] = it;
+      const rows = [];
+      for (const m of state?.stockMovements || []) {
+        if (String(m.supplierId) !== String(sid)) continue;
+        if (m.direction === "out") continue;
+        if (fyId != null && Number(m.fiscalYearId) !== fyId) continue;
+        const item = items[String(m.itemId)] || {};
+        const qty = Number(m.quantity) || 0;
+        const price = Number(m.unitPrice) || 0;
+        rows.push({
+          id: `stock-${m.id}`,
+          source: "stock",
+          date: m.date || "",
+          material: item.name || "صنف",
+          unit: item.unit || "",
+          quantity: qty,
+          amount: qty * price,
+          detail: "",
+        });
+      }
+      for (const c of state?.clients || []) {
+        if (fyId != null && Number(c.fiscalYearId) !== fyId) continue;
+        for (const t of c.txs || []) {
+          if (t.type !== "expense" || String(t.supplierId) !== String(sid)) continue;
+          rows.push({
+            id: `client-${c.id}-${t.id}`,
+            source: "client",
+            date: t.date || "",
+            material: t.cat || "مشتريات",
+            unit: "",
+            quantity: 0,
+            amount: Number(t.amount) || 0,
+            detail: c.name || "",
+          });
+        }
+      }
+      return rows.sort(sortSupplierPurchaseRows);
+    }
+    return await runDb(async (database) => {
+      const fyStock = fyId != null ? " AND m.fiscal_year_id = ?" : "";
+      const fyClient = fyId != null ? " AND c.fiscal_year_id = ?" : "";
+      const stockParams = fyId != null ? [sid, fyId] : [sid];
+      const clientParams = fyId != null ? [sid, fyId] : [sid];
+      const [stockRows, clientRows] = await Promise.all([
+        database.getAllAsync(
+          `SELECT m.id, m.date, m.quantity, m.unit_price, i.name AS item_name, i.unit
+           FROM stock_movements m
+           LEFT JOIN stock_items i ON i.id = m.item_id
+           WHERE m.supplier_id = ? AND m.direction = 'in'${fyStock}
+           ORDER BY m.date DESC, m.id DESC`,
+          ...stockParams
+        ),
+        database.getAllAsync(
+          `SELECT ct.id, ct.client_id, ct.date, ct.amount, ct.cat, c.name AS client_name
+           FROM client_transactions ct
+           INNER JOIN clients c ON c.id = ct.client_id
+           WHERE ct.supplier_id = ? AND ct.type = 'expense'${fyClient}
+           ORDER BY ct.date DESC, ct.id DESC`,
+          ...clientParams
+        ),
+      ]);
+      const rows = [];
+      for (const r of stockRows || []) {
+        const qty = Number(r.quantity) || 0;
+        rows.push({
+          id: `stock-${r.id}`,
+          source: "stock",
+          date: r.date || "",
+          material: r.item_name || "صنف",
+          unit: r.unit || "",
+          quantity: qty,
+          amount: qty * (Number(r.unit_price) || 0),
+          detail: "",
+        });
+      }
+      for (const r of clientRows || []) {
+        rows.push({
+          id: `client-${r.client_id}-${r.id}`,
+          source: "client",
+          date: r.date || "",
+          material: r.cat || "مشتريات",
+          unit: "",
+          quantity: 0,
+          amount: Number(r.amount) || 0,
+          detail: r.client_name || "",
+        });
+      }
+      return rows.sort(sortSupplierPurchaseRows);
+    });
+  } catch (e) {
+    console.warn("DB getSupplierPurchaseHistory error:", e?.message || e);
+    clearDbOnError(e);
+    return [];
   }
 }
 
@@ -1699,16 +1951,8 @@ export async function saveState(data) {
     await runDb(async (database) => {
       for (const c of data.clients || []) {
         await database.runAsync(
-          "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          c.id,
-          c.name || "",
-          c.project || "",
-          c.status || "active",
-          c.note || "",
-          c.createdAt || "",
-          c.fiscalYearId ?? null,
-          c.orderAmount != null && Number(c.orderAmount) > 0 ? Number(c.orderAmount) : null,
-          c.phone || ""
+          "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone, delivery_date, reminder_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          ...clientWriteValues(c)
         );
         await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", c.id);
         for (const t of c.txs || []) {
@@ -1795,7 +2039,13 @@ export async function upsertClient(client) {
       const state = await getWebState();
       if (!state) return;
       const idx = state.clients.findIndex((c) => String(c.id) === String(client.id));
-      const next = { ...client, txs: client.txs || [] };
+      const deliveryDate = normalizeDeliveryDate(client.deliveryDate);
+      const next = {
+        ...client,
+        txs: client.txs || [],
+        deliveryDate,
+        reminderDays: normalizeReminderDays(client.reminderDays, deliveryDate),
+      };
       const clients = [...state.clients];
       if (idx >= 0) clients[idx] = next;
       else clients.push(next);
@@ -1804,16 +2054,8 @@ export async function upsertClient(client) {
     }
     await runDb(async (database) => {
       await database.runAsync(
-        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        client.id,
-        client.name || "",
-        client.project || "",
-        client.status || "active",
-        client.note || "",
-        client.createdAt || "",
-        client.fiscalYearId ?? null,
-        client.orderAmount != null && Number(client.orderAmount) > 0 ? Number(client.orderAmount) : null,
-        client.phone || ""
+        "INSERT OR REPLACE INTO clients (id, name, project, status, note, created_at, fiscal_year_id, order_amount, phone, delivery_date, reminder_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ...clientWriteValues(client)
       );
       await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", client.id);
       for (const t of client.txs || []) {
@@ -1839,15 +2081,31 @@ export async function deleteClient(id) {
     if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
+      const client = (state.clients || []).find((c) => String(c.id) === String(id));
+      const hasTxs = (client?.txs || []).length > 0;
+      const hasStock = (state.stockMovements || []).some((m) => String(m.clientId) === String(id));
+      throwIfBlocked(hasTxs || hasStock, CLIENT_DELETE_BLOCKED_MSG);
       const clients = state.clients.filter((c) => String(c.id) !== String(id));
       await setWebState({ ...state, clients });
       return;
     }
     await runDb(async (database) => {
+      const tx = await database.getFirstAsync(
+        "SELECT id FROM client_transactions WHERE client_id = ? LIMIT 1",
+        id
+      );
+      const mov = tx
+        ? null
+        : await database.getFirstAsync(
+            "SELECT id FROM stock_movements WHERE client_id = ? LIMIT 1",
+            id
+          );
+      throwIfBlocked(!!tx || !!mov, CLIENT_DELETE_BLOCKED_MSG);
       await database.runAsync("DELETE FROM client_transactions WHERE client_id = ?", id);
       await database.runAsync("DELETE FROM clients WHERE id = ?", id);
     });
   } catch (e) {
+    if (e?.code === DELETE_BLOCKED) throw e;
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteClient error:", e.message);
     }
@@ -2040,16 +2298,33 @@ export async function deleteWorker(id) {
     if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
+      const hasLedger = (state.workerTxs || []).some((t) => String(t.workerId) === String(id));
+      const hasClientTx = (state.clients || []).some((c) =>
+        (c.txs || []).some((t) => String(t.workerId) === String(id))
+      );
+      throwIfBlocked(hasLedger || hasClientTx, WORKER_DELETE_BLOCKED_MSG);
       const workers = (state.workers || []).filter((w) => String(w.id) !== String(id));
       const workerTxs = (state.workerTxs || []).filter((t) => String(t.workerId) !== String(id));
       await setWebState({ ...state, workers, workerTxs });
       return;
     }
     await runDb(async (database) => {
+      const ledger = await database.getFirstAsync(
+        "SELECT id FROM worker_transactions WHERE worker_id = ? LIMIT 1",
+        id
+      );
+      const clientTx = ledger
+        ? null
+        : await database.getFirstAsync(
+            "SELECT id FROM client_transactions WHERE worker_id = ? LIMIT 1",
+            id
+          );
+      throwIfBlocked(!!ledger || !!clientTx, WORKER_DELETE_BLOCKED_MSG);
       await database.runAsync("DELETE FROM worker_transactions WHERE worker_id = ?", id);
       await database.runAsync("DELETE FROM workers WHERE id = ?", id);
     });
   } catch (e) {
+    if (e?.code === DELETE_BLOCKED) throw e;
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteWorker error:", e.message);
     }
@@ -2099,12 +2374,31 @@ export async function deleteSupplier(id) {
     if (IS_WEB) {
       const state = await getWebState();
       if (!state) return;
+      const hasStock = (state.stockMovements || []).some((m) => String(m.supplierId) === String(id));
+      const hasClientTx = (state.clients || []).some((c) =>
+        (c.txs || []).some((t) => String(t.supplierId) === String(id))
+      );
+      throwIfBlocked(hasStock || hasClientTx, SUPPLIER_DELETE_BLOCKED_MSG);
       const suppliers = (state.suppliers || []).filter((s) => String(s.id) !== String(id));
       await setWebState({ ...state, suppliers });
       return;
     }
-    await runDb((database) => database.runAsync("DELETE FROM suppliers WHERE id = ?", id));
+    await runDb(async (database) => {
+      const mov = await database.getFirstAsync(
+        "SELECT id FROM stock_movements WHERE supplier_id = ? LIMIT 1",
+        id
+      );
+      const clientTx = mov
+        ? null
+        : await database.getFirstAsync(
+            "SELECT id FROM client_transactions WHERE supplier_id = ? LIMIT 1",
+            id
+          );
+      throwIfBlocked(!!mov || !!clientTx, SUPPLIER_DELETE_BLOCKED_MSG);
+      await database.runAsync("DELETE FROM suppliers WHERE id = ?", id);
+    });
   } catch (e) {
+    if (e?.code === DELETE_BLOCKED) throw e;
     if (e?.message && !e.message.includes("Native module is null")) {
       console.error("DB deleteSupplier error:", e.message);
     }
@@ -2218,6 +2512,7 @@ export async function getStockItemsWithBalance() {
           item,
           quantity: bal.quantity,
           avgCost,
+          avgPurchase: Number(bal.avgPurchase) || 0,
           totalValue: bal.quantity * avgCost,
           received: bal.receivedQty || 0,
         };
@@ -2233,6 +2528,7 @@ export async function getStockItemsWithBalance() {
           item,
           quantity: bal.quantity,
           avgCost,
+          avgPurchase: Number(bal.avgPurchase) || 0,
           totalValue: bal.quantity * avgCost,
           received: bal.receivedQty || 0,
         };

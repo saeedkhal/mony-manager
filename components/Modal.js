@@ -15,7 +15,7 @@ import { useKeyboardAwareScroll } from "../hooks/useKeyboardBottomPad";
  * Full-screen form page that replaces the popup overlay.
  * Parent screens keep mounting this alongside the list; when visible it covers the screen.
  */
-export default function CustomModal({ visible = true, onClose, children }) {
+export default function CustomModal({ visible = true, onClose, children, onScroll: extraOnScroll }) {
   const insets = useSafeAreaInsets();
   const { scrollRef, keyboardPad, onScroll, Provider } = useKeyboardAwareScroll();
 
@@ -40,7 +40,10 @@ export default function CustomModal({ visible = true, onClose, children }) {
             padding: 24,
             paddingBottom: 24 + insets.bottom + keyboardPad,
           }}
-          onScroll={onScroll}
+          onScroll={(e) => {
+            onScroll(e);
+            extraOnScroll?.(e);
+          }}
           scrollEventThrottle={16}
           showsVerticalScrollIndicator
           keyboardShouldPersistTaps="handled"

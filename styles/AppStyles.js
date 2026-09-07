@@ -1,7 +1,13 @@
-import { StyleSheet, Dimensions, Platform } from "react-native";
+import { StyleSheet, Dimensions, Platform, I18nManager } from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export { SCREEN_WIDTH };
+
+/** First child (e.g. الاسم) on the physical right. `direction: ltr` avoids a second flip with forceRTL. */
+const TABLE_ROW_LTR_ENGINE = {
+  flexDirection: I18nManager.isRTL ? "row" : "row-reverse",
+  direction: "ltr",
+};
 
 export default StyleSheet.create({
   container: {
@@ -747,8 +753,7 @@ export default StyleSheet.create({
     alignSelf: "stretch",
   },
   stockTableHeader: {
-    flexDirection: "row",
-    direction: "rtl",
+    ...TABLE_ROW_LTR_ENGINE,
     width: "100%",
     alignItems: "center",
     backgroundColor: "rgba(99,102,241,0.18)",
@@ -760,8 +765,7 @@ export default StyleSheet.create({
     borderTopRightRadius: 14,
   },
   stockTableRow: {
-    flexDirection: "row",
-    direction: "rtl",
+    ...TABLE_ROW_LTR_ENGINE,
     width: "100%",
     alignItems: "center",
     paddingVertical: 10,
@@ -777,8 +781,7 @@ export default StyleSheet.create({
     borderBottomWidth: 0,
   },
   stockTableFooter: {
-    flexDirection: "row",
-    direction: "rtl",
+    ...TABLE_ROW_LTR_ENGINE,
     width: "100%",
     alignItems: "center",
     backgroundColor: "rgba(99,102,241,0.1)",
@@ -790,7 +793,11 @@ export default StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 3,
   },
-  stockTableColName: { flex: 1.5, minWidth: 0 },
+  stockTableColName: {
+    flex: 1.5,
+    minWidth: 0,
+    alignItems: I18nManager.isRTL ? "flex-start" : "flex-end",
+  },
   stockTableColQty: { flex: 0.75, minWidth: 0, alignItems: "center" },
   stockTableColRemain: { flex: 0.8, minWidth: 0, alignItems: "center" },
   stockTableColCost: { flex: 0.9, minWidth: 0, alignItems: "center" },
@@ -810,6 +817,7 @@ export default StyleSheet.create({
     fontSize: 11,
     fontWeight: "800",
     textAlign: "right",
+    writingDirection: "rtl",
     width: "100%",
   },
   stockTableHeaderTextCenter: {
@@ -820,6 +828,8 @@ export default StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     textAlign: "right",
+    writingDirection: "rtl",
+    width: "100%",
   },
   stockTableCellNameUnit: {
     color: "#94a3b8",
@@ -831,12 +841,15 @@ export default StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
     textAlign: "right",
+    writingDirection: "rtl",
+    width: "100%",
   },
   stockTableCell: {
     color: "#e2e8f0",
     fontSize: 12,
     fontWeight: "600",
     textAlign: "right",
+    writingDirection: "rtl",
     width: "100%",
   },
   stockTableCellCenter: {
@@ -853,6 +866,8 @@ export default StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     textAlign: "right",
+    writingDirection: "rtl",
+    width: "100%",
   },
   stockMenuBtn: {
     width: 32,
@@ -899,7 +914,7 @@ export default StyleSheet.create({
     width: "100%",
   },
   stockTablePager: {
-    flexDirection: "row",
+    ...TABLE_ROW_LTR_ENGINE,
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 10,

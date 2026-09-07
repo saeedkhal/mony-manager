@@ -31,6 +31,7 @@ import ClientSearchSelect from "../components/ClientSearchSelect";
 
 const STOCK_MOVEMENTS_PAGE_SIZE = 5;
 const STOCK_ITEMS_PAGE_SIZE = 5;
+const DETAIL_MOVEMENTS_PAGE_SIZE = 5;
 
 export default function Warehouse() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
@@ -50,6 +51,10 @@ export default function Warehouse() {
   const warehouseRootRef = useRef(null);
   const [detailMovements, setDetailMovements] = useState([]);
   const [detailMovementsLoading, setDetailMovementsLoading] = useState(false);
+  const [detailHasMore, setDetailHasMore] = useState(false);
+  const [detailLoadingMore, setDetailLoadingMore] = useState(false);
+  const detailMovementsRef = useRef([]);
+  const detailItemIdRef = useRef(null);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsLoadingMore, setMovementsLoadingMore] = useState(false);
   const movementsRef = useRef([]);
@@ -59,6 +64,10 @@ export default function Warehouse() {
   useEffect(() => {
     movementsRef.current = movements;
   }, [movements]);
+
+  useEffect(() => {
+    detailMovementsRef.current = detailMovements;
+  }, [detailMovements]);
 
   useEffect(() => {
     filterItemIdRef.current = filterItemId;
@@ -160,16 +169,25 @@ export default function Warehouse() {
   useEffect(() => {
     if (modal !== "stockItemDetail" || form.itemId == null || activeFiscalYearId == null) {
       setDetailMovements([]);
+      setDetailHasMore(false);
+      detailItemIdRef.current = null;
       return undefined;
     }
+    detailItemIdRef.current = form.itemId;
     let cancelled = false;
     setDetailMovementsLoading(true);
-    getStockMovementsPage(activeFiscalYearId, 40, 0, form.itemId)
-      .then(({ movements: list }) => {
-        if (!cancelled) setDetailMovements(list || []);
+    getStockMovementsPage(activeFiscalYearId, DETAIL_MOVEMENTS_PAGE_SIZE, 0, form.itemId)
+      .then(({ movements: list, hasMore }) => {
+        if (!cancelled) {
+          setDetailMovements(list || []);
+          setDetailHasMore(!!hasMore);
+        }
       })
       .catch(() => {
-        if (!cancelled) setDetailMovements([]);
+        if (!cancelled) {
+          setDetailMovements([]);
+          setDetailHasMore(false);
+        }
       })
       .finally(() => {
         if (!cancelled) setDetailMovementsLoading(false);
@@ -253,6 +271,38 @@ export default function Warehouse() {
       setStockPage(Math.max(0, stockPageCount - 1));
     }
   }, [stockPage, stockPageCount]);
+
+  const loadMoreDetailMovements = useCallback(async () => {
+    if (!detailHasMore || detailLoadingMore || detailMovementsLoading || activeFiscalYearId == null) return;
+    const itemId = detailItemIdRef.current;
+    if (itemId == null) return;
+    setDetailLoadingMore(true);
+    try {
+      const offset = detailMovementsRef.current.length;
+      const { movements: next, hasMore } = await getStockMovementsPage(
+        activeFiscalYearId,
+        DETAIL_MOVEMENTS_PAGE_SIZE,
+        offset,
+        itemId
+      );
+      setDetailMovements((prev) => [...prev, ...(next || [])]);
+      setDetailHasMore(!!hasMore);
+    } catch (_) {
+      setDetailHasMore(false);
+    } finally {
+      setDetailLoadingMore(false);
+    }
+  }, [detailHasMore, detailLoadingMore, detailMovementsLoading, activeFiscalYearId]);
+
+  const onScrollItemDetail = useCallback(
+    (e) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 120) {
+        loadMoreDetailMovements();
+      }
+    },
+    [loadMoreDetailMovements]
+  );
 
   const issuePreviewAmount = useMemo(() => {
     if (modal !== "stockIssue" || !form.itemId) return null;
@@ -347,15 +397,17 @@ export default function Warehouse() {
   const reloadDetailMovements = async (itemId) => {
     if (itemId == null || activeFiscalYearId == null) return;
     try {
-      const { movements: list } = await getStockMovementsPage(
+      const { movements: list, hasMore } = await getStockMovementsPage(
         activeFiscalYearId,
-        40,
+        DETAIL_MOVEMENTS_PAGE_SIZE,
         0,
         itemId
       );
       setDetailMovements(list || []);
+      setDetailHasMore(!!hasMore);
     } catch (_) {
       setDetailMovements([]);
+      setDetailHasMore(false);
     }
   };
 
@@ -1176,7 +1228,9 @@ export default function Warehouse() {
         onClose={() => {
           setModal(null);
           setDetailMovements([]);
+          setDetailHasMore(false);
         }}
+        onScroll={onScrollItemDetail}
       >
         <Text style={styles.modalTitle}>تفاصيل الصنف</Text>
         {detailBalance ? (
@@ -1212,11 +1266,19 @@ export default function Warehouse() {
                 </Text>
               </Text>
             </View>
-            <View style={styles.stockItemMetaRow}>
+            <View style={[styles.stockItemMetaRow, { flexWrap: "wrap" }]}>
               <View style={styles.stockItemMeta}>
                 <Text style={styles.stockItemMetaLabel}>سعر الوحدة</Text>
                 <Text style={styles.stockItemMetaValue}>
                   {fmt(detailBalance.avgCost)} {CURRENCY}
+                </Text>
+              </View>
+              <View style={styles.stockItemMeta}>
+                <Text style={styles.stockItemMetaLabel}>متوسط سعر الشراء</Text>
+                <Text style={styles.stockItemMetaValue}>
+                  {detailBalance.avgPurchase > 0
+                    ? `${fmt(detailBalance.avgPurchase)} ${CURRENCY}`
+                    : "—"}
                 </Text>
               </View>
               <View style={styles.stockItemMeta}>
@@ -1270,49 +1332,96 @@ export default function Warehouse() {
         ) : detailMovements.length === 0 ? (
           <Text style={styles.emptyText}>لا حركات لهذا الصنف في السنة المالية</Text>
         ) : (
-          detailMovements.map((m) => {
-            const item = itemMap[m.itemId]?.item || detailBalance?.item;
-            const isIn = m.direction === "in";
-            const partyLabel = isIn
-              ? `المصدر: ${getSupplierName(m.supplierId)}`
-              : `اسم العميل: ${getClientName(m.clientId)}`;
-            return (
-              <View
-                key={m.id}
-                style={[
-                  styles.txItemStack,
-                  {
-                    borderColor: isIn ? "rgba(16,185,129,0.3)" : "rgba(251,146,60,0.3)",
-                    marginBottom: 8,
-                  },
-                ]}
-              >
-                <View style={styles.txItemRow}>
-                  <Text style={styles.txIcon}>{isIn ? "📥" : "📤"}</Text>
-                  <Text style={{ color: "#e2e8f0", fontWeight: "600", flex: 1 }}>
-                    {isIn ? "دخول (شراء)" : "خروج (صرف)"}
-                  </Text>
-                  <Text style={styles.txDate}>{m.date}</Text>
+          <View>
+            {detailMovements.map((m) => {
+              const item = itemMap[m.itemId]?.item || detailBalance?.item;
+              const unit = getStockUnitLabel(item?.unit);
+              const isIn = m.direction === "in";
+              const qty = Number(m.quantity) || 0;
+              const price = Number(m.unitPrice) || 0;
+              const amount = qty * price;
+              const accent = isIn ? "#10b981" : "#fb923c";
+              return (
+                <View
+                  key={m.id}
+                  style={[
+                    styles.txItemStack,
+                    {
+                      borderColor: isIn ? "rgba(16,185,129,0.35)" : "rgba(251,146,60,0.35)",
+                      marginBottom: 10,
+                    },
+                  ]}
+                >
+                  <View style={[styles.txItemRow, { justifyContent: "space-between" }]}>
+                    <View
+                      style={[
+                        styles.tag,
+                        { backgroundColor: isIn ? "rgba(16,185,129,0.18)" : "rgba(251,146,60,0.18)" },
+                      ]}
+                    >
+                      <Text style={[styles.tagText, { color: accent }]}>
+                        {isIn ? "📥 دخول — شراء" : "📤 خروج — صرف"}
+                      </Text>
+                    </View>
+                    <Text style={[styles.txDate, { marginTop: 0 }]}>{m.date || "—"}</Text>
+                  </View>
+                  <View style={styles.stockItemMetaRow}>
+                    <View style={styles.stockItemMeta}>
+                      <Text style={styles.stockItemMetaLabel}>الكمية</Text>
+                      <Text style={styles.stockItemMetaValue}>
+                        {fmt(qty, 2)} {unit}
+                      </Text>
+                    </View>
+                    <View style={styles.stockItemMeta}>
+                      <Text style={styles.stockItemMetaLabel}>سعر الوحدة</Text>
+                      <Text style={styles.stockItemMetaValue}>
+                        {fmt(price, 2)} {CURRENCY}
+                      </Text>
+                    </View>
+                    <View style={styles.stockItemMeta}>
+                      <Text style={styles.stockItemMetaLabel}>القيمة</Text>
+                      <Text style={[styles.stockItemMetaValue, { color: accent }]}>
+                        {fmt(amount)} {CURRENCY}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.stockItemMeta}>
+                    <Text style={styles.stockItemMetaLabel}>{isIn ? "المورد" : "العميل"}</Text>
+                    <Text style={styles.stockItemMetaValue}>
+                      {isIn ? getSupplierName(m.supplierId) : getClientName(m.clientId)}
+                    </Text>
+                  </View>
+                  {m.note ? (
+                    <View style={styles.stockItemMeta}>
+                      <Text style={styles.stockItemMetaLabel}>ملاحظة</Text>
+                      <Text style={[styles.stockItemMetaValue, { fontWeight: "600", color: "#94a3b8" }]}>
+                        {m.note}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.txItemActionsRow}>
+                    <View style={styles.txItemButtons}>
+                      <TouchableOpacity style={styles.txEditBtn} onPress={() => openEditMovement(m, true)}>
+                        <Text style={styles.txEditBtnText}>تعديل</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.txDeleteBtn}
+                        onPress={() => handleDeleteMovement(m.id)}
+                      >
+                        <Text style={styles.txDeleteBtnText}>حذف</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
-                <Text style={{ color: "#94a3b8", marginTop: 4 }}>
-                  {fmt(m.quantity, 2)} {getStockUnitLabel(item?.unit)} × {fmt(m.unitPrice, 2)} ={" "}
-                  {fmt(m.quantity * m.unitPrice)} {CURRENCY}
-                </Text>
-                <Text style={{ color: "#cbd5e1", fontSize: 13, marginTop: 4 }}>{partyLabel}</Text>
-                {m.note ? (
-                  <Text style={{ color: "#64748b", fontSize: 12, marginTop: 2 }}>{m.note}</Text>
-                ) : null}
-                <View style={[styles.txItemButtons, { marginTop: 8 }]}>
-                  <TouchableOpacity style={styles.txEditBtn} onPress={() => openEditMovement(m, true)}>
-                    <Text style={styles.txEditBtnText}>تعديل</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.txDeleteBtn} onPress={() => handleDeleteMovement(m.id)}>
-                    <Text style={styles.txDeleteBtnText}>حذف</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
-          })
+              );
+            })}
+            {detailMovements.length > 0 && detailLoadingMore ? (
+              <ActivityIndicator color="#818cf8" style={{ marginVertical: 16 }} />
+            ) : null}
+            {detailMovements.length > 0 && !detailHasMore && !detailLoadingMore ? (
+              <Text style={[styles.emptyText, { marginTop: 8, fontSize: 12 }]}>— نهاية الحركات —</Text>
+            ) : null}
+          </View>
         )}
       </CustomModal>
 

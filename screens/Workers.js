@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, BackHandler } from "react-native";
+import { View, Text, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, BackHandler, Alert } from "react-native";
 import { useApp } from "../context/AppContext";
 import {
   getWorkersPage,
@@ -7,6 +7,7 @@ import {
   deleteWorker as dbDeleteWorker,
   upsertWorker,
   getWorkers,
+  DELETE_BLOCKED,
 } from "../utils/db";
 import { CURRENCY } from "../constants";
 import { fmt } from "../utils/helpers";
@@ -150,7 +151,11 @@ export default function Workers() {
       listFetchGen.current += 1;
       const gen = listFetchGen.current;
       await refreshWorkers(workerPage, gen);
-    } catch (_) {}
+    } catch (e) {
+      if (e?.code === DELETE_BLOCKED) {
+        Alert.alert("لا يمكن الحذف", e.message);
+      }
+    }
   };
 
   const saveWorker = async () => {

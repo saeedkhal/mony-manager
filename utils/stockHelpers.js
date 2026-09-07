@@ -25,11 +25,14 @@ export function computeStockBalance(movements) {
   let qty = 0;
   let totalCost = 0;
   let receivedQty = 0;
+  let purchasedCost = 0;
   for (const m of sorted) {
     const q = Number(m.quantity) || 0;
     if (q <= 0) continue;
     if (m.direction === "in") {
-      totalCost += q * (Number(m.unitPrice) || 0);
+      const line = q * (Number(m.unitPrice) || 0);
+      totalCost += line;
+      purchasedCost += line;
       qty += q;
       receivedQty += q;
     } else if (m.direction === "out") {
@@ -44,6 +47,7 @@ export function computeStockBalance(movements) {
     quantity: Math.max(0, qty),
     totalCost: Math.max(0, totalCost),
     avgCost,
+    avgPurchase: receivedQty > 0 ? purchasedCost / receivedQty : 0,
     receivedQty: receivedQty || 0,
   };
 }

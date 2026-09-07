@@ -10,7 +10,16 @@ import ClientDetail from "./ClientDetail";
 import ScreenLayout from "../components/ScreenLayout";
 import CustomModal from "../components/Modal";
 import FormTextInput from "../components/FormTextInput";
-import { FORM_MSG, trimmed, parsePositiveAmount } from "../utils/formValidation";
+import FormDateField from "../components/FormDateField";
+import { FORM_MSG, trimmed, parsePositiveAmount, isValidDateYmd } from "../utils/formValidation";
+import {
+  DEFAULT_REMINDER_DAYS,
+  REMINDER_DAY_OPTIONS,
+  normalizeDeliveryDate,
+  normalizeReminderDays,
+  getDeliveryStatus,
+  isDeliveryAlerting,
+} from "../utils/deliveryReminders";
 
 const CLIENTS_PAGE_SIZE = 5;
 
@@ -146,6 +155,13 @@ export default function Clients() {
         return;
       }
     }
+    const deliveryRaw = trimmed(form.deliveryDate);
+    if (deliveryRaw && !isValidDateYmd(deliveryRaw)) {
+      setFormErrors({ deliveryDate: FORM_MSG.date });
+      return;
+    }
+    const deliveryDate = normalizeDeliveryDate(deliveryRaw);
+    const reminderDays = normalizeReminderDays(form.reminderDays, deliveryDate);
     setFormErrors({});
     try {
       if (form.editId) {
@@ -158,6 +174,8 @@ export default function Clients() {
           note: form.note || "",
           phone: trimmed(form.phone),
           orderAmount,
+          deliveryDate,
+          reminderDays,
         });
       } else {
         await getActiveFiscalYear();
@@ -170,6 +188,8 @@ export default function Clients() {
           note: form.note || "",
           phone: trimmed(form.phone),
           orderAmount,
+          deliveryDate,
+          reminderDays,
           fiscalYearId: fiscalYearId ?? null,
           createdAt: new Date().toISOString().split("T")[0],
           txs: [],
@@ -214,6 +234,8 @@ export default function Clients() {
       project: c.project || PROJECT_TYPES[0],
       phone: c.phone || "",
       orderAmount: Number(c.orderAmount) > 0 ? String(c.orderAmount) : "",
+      deliveryDate: c.deliveryDate || "",
+      reminderDays: c.reminderDays == null ? null : c.reminderDays,
     });
     setModal("addClient");
   };
@@ -268,6 +290,56 @@ export default function Clients() {
           error={formErrors.orderAmount}
         />
       </View>
+      <FormDateField
+        styles={styles}
+        label="موعد التسليم (اختياري)"
+        value={form.deliveryDate || ""}
+        onChangeValue={(v) => {
+          setFormErrors((e) => ({ ...e, deliveryDate: undefined }));
+          setForm((p) => ({
+            ...p,
+            deliveryDate: v,
+            reminderDays: p.deliveryDate ? p.reminderDays : DEFAULT_REMINDER_DAYS,
+          }));
+        }}
+        active={modal === "addClient"}
+        error={formErrors.deliveryDate}
+      />
+      {form.deliveryDate ? (
+        <TouchableOpacity
+          onPress={() => {
+            setFormErrors((e) => ({ ...e, deliveryDate: undefined }));
+            setForm((p) => ({ ...p, deliveryDate: "", reminderDays: null }));
+          }}
+          style={{ alignSelf: "flex-start", marginTop: -8, marginBottom: 12 }}
+        >
+          <Text style={{ color: "#818cf8", fontSize: 12 }}>مسح موعد التسليم</Text>
+        </TouchableOpacity>
+      ) : null}
+      {form.deliveryDate ? (
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>تنبيه قبل الموعد</Text>
+          <View style={styles.optionsGrid}>
+            {REMINDER_DAY_OPTIONS.map((opt) => {
+              const selected =
+                opt.value == null
+                  ? form.reminderDays == null
+                  : Number(form.reminderDays) === opt.value;
+              return (
+                <TouchableOpacity
+                  key={String(opt.value)}
+                  style={[styles.optionBtn, selected && styles.optionBtnActive]}
+                  onPress={() => setForm((p) => ({ ...p, reminderDays: opt.value }))}
+                >
+                  <Text style={[styles.optionBtnText, selected && styles.optionBtnTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
         <FormTextInput
@@ -425,6 +497,8 @@ export default function Clients() {
                         : t.remaining < 0
                           ? "#818cf8"
                           : "#10b981";
+                  const delivery = getDeliveryStatus(c);
+                  const deliveryAlert = isDeliveryAlerting(c);
                   return (
                     <View
                       key={c.id}
@@ -444,6 +518,17 @@ export default function Clients() {
                           {c.project ? `${c.project} • ` : ""}
                           {s.label}
                         </Text>
+                        {delivery ? (
+                          <Text
+                            style={[
+                              styles.stockTableCellSub,
+                              { color: deliveryAlert ? delivery.color : "#64748b" },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            تسليم {delivery.date} — {delivery.label}
+                          </Text>
+                        ) : null}
                       </View>
                       <View style={[styles.stockTableCol, styles.stockTableColCost]}>
                         <Text style={[styles.stockTableCell, styles.stockTableCellCenter]} numberOfLines={1}>

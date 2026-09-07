@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Pressable, StyleSheet, BackHandler } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Pressable, StyleSheet, BackHandler, Alert } from "react-native";
 import { useApp } from "../context/AppContext";
 import {
   getClientWithTxs,
@@ -11,10 +11,12 @@ import {
   updateStockMovement,
   upsertClient,
   deleteClient as dbDeleteClient,
+  DELETE_BLOCKED,
 } from "../utils/db";
 import { CURRENCY, STATUS_LABELS, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
 import { getStockUnitLabel } from "../utils/stockHelpers";
+import { getDeliveryStatus, isDeliveryAlerting } from "../utils/deliveryReminders";
 import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils/formValidation";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
@@ -118,7 +120,13 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
   const deleteClient = async (cid) => {
     try {
       await dbDeleteClient(cid);
-    } catch (_) {}
+      return true;
+    } catch (e) {
+      if (e?.code === DELETE_BLOCKED) {
+        Alert.alert("لا يمكن الحذف", e.message);
+      }
+      return false;
+    }
   };
 
   const [client, setClient] = useState(null);
@@ -432,6 +440,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
 
   const s = STATUS_LABELS[client.status];
   const t = totals;
+  const delivery = getDeliveryStatus(client);
+  const deliveryAlerting = isDeliveryAlerting(client);
 
   return (
     <View style={{ flex: 1 }} ref={listRootRef}>
@@ -453,6 +463,11 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
         {client.phone ? (
           <Text style={styles.clientDetailMeta}>📞 {client.phone}</Text>
         ) : null}
+        {delivery ? (
+          <Text style={[styles.clientDetailMeta, { color: deliveryAlerting ? delivery.color : "#94a3b8" }]}>
+            🚚 موعد التسليم {delivery.date} — {delivery.label}
+          </Text>
+        ) : null}
         <View style={styles.clientDetailHeaderBtnRow}>
           <TouchableOpacity
             style={[
@@ -473,8 +488,8 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
           <TouchableOpacity
             style={[styles.deleteBtn, styles.clientDetailHeaderBtn]}
             onPress={async () => {
-              await deleteClient(client.id);
-              onClientDeleted?.();
+              const ok = await deleteClient(client.id);
+              if (ok) onClientDeleted?.();
             }}
           >
             <Text style={styles.deleteBtnText}>حذف</Text>

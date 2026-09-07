@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import { useApp } from "../context/AppContext";
-import { getSuppliers, getClients, getWorkers, getClientWithTxs, upsertClient, getStockItemsWithBalance, recordStockPurchase } from "../utils/db";
+import { getSuppliers, getWorkers, getClientWithTxs, upsertClient, getStockItemsWithBalance, recordStockPurchase, getSupplierPurchaseHistory } from "../utils/db";
 import { CURRENCY, CLIENT_EXPENSE_CATS } from "../constants";
 import { fmt } from "../utils/helpers";
 import { getStockUnitLabel } from "../utils/stockHelpers";
@@ -33,6 +33,8 @@ function normalizeSupplierDetailDateRange(fromRaw, toRaw) {
 const detailFilterDateFieldsActive = (modal) =>
   modal !== "addClientTx" && modal !== "addSupplierTx" && modal !== "addSupplier";
 
+const PURCHASE_PAGE_SIZE = 5;
+
 export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }) {
   const {
     loaded,
@@ -40,14 +42,14 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
     activeFiscalYearLabel,
     setForm,
     setModal,
-    deleteClientTx,
     modal,
     form,
     setShowClientPicker,
   } = useApp();
   const [formErrors, setFormErrors] = useState({});
   const [suppliers, setSuppliers] = useState([]);
-  const [clients, setClients] = useState([]);
+  const [purchaseRows, setPurchaseRows] = useState([]);
+  const [purchasePage, setPurchasePage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [txWorkers, setTxWorkers] = useState([]);
   const [txSuppliers, setTxSuppliers] = useState([]);
@@ -61,26 +63,46 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
     setFilterDateFrom("");
     setFilterDateTo("");
     setDateFiltersExpanded(false);
+    setPurchasePage(0);
   }, [selectedSupplier]);
 
+  const reloadSupplierDetail = async () => {
+    if (selectedSupplier == null) return;
+    const [s, history] = await Promise.all([
+      getSuppliers(),
+      getSupplierPurchaseHistory(selectedSupplier, { fiscalYearId: activeFiscalYearId }),
+    ]);
+    setSuppliers(s || []);
+    setPurchaseRows(history || []);
+  };
+
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || selectedSupplier == null) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all([getSuppliers(), getClients()])
-      .then(([s, c]) => {
+    Promise.all([
+      getSuppliers(),
+      getSupplierPurchaseHistory(selectedSupplier, { fiscalYearId: activeFiscalYearId }),
+    ])
+      .then(([s, history]) => {
         if (!cancelled) {
           setSuppliers(s || []);
-          setClients(c || []);
+          setPurchaseRows(history || []);
         }
       })
       .catch(() => {
-        if (!cancelled) setSuppliers([]);
-        if (!cancelled) setClients([]);
+        if (!cancelled) {
+          setSuppliers([]);
+          setPurchaseRows([]);
+        }
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [loaded, selectedSupplier]);
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, selectedSupplier, activeFiscalYearId]);
 
   useEffect(() => {
     if (!loaded || (modal !== "addClientTx" && modal !== "addSupplierTx")) return;
@@ -128,14 +150,13 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
           note: form.note || "",
           fiscalYearId: activeFiscalYearId,
         });
-        const [sup, cl, stock] = await Promise.all([
+        const [sup, stock] = await Promise.all([
           getSuppliers(),
-          getClients(),
           getStockItemsWithBalance(),
         ]);
         setSuppliers(sup || []);
-        setClients(cl || []);
         setStockBalances(stock || []);
+        await reloadSupplierDetail();
         setModal(null);
         setShowClientPicker(false);
         setShowStockItemPicker(false);
@@ -184,33 +205,16 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
     }
     try {
       await upsertClient(updatedClient);
-      const [sup, cl] = await Promise.all([getSuppliers(), getClients()]);
-      setSuppliers(sup || []);
-      setClients(cl || []);
+      await reloadSupplierDetail();
     } catch (_) {}
     setModal(null);
     setShowClientPicker(false);
     setForm({});
   };
 
-  const supplierStats = useMemo(() => {
-    return (suppliers || [])
-      .map((s) => {
-        const matchingTxs = (clients || []).flatMap((c) =>
-          (c.txs || [])
-            .filter((t) => t.type === "expense" && t.supplierId === s.id)
-            .map((t) => ({ ...t, clientId: c.id, clientName: c.name }))
-        );
-        const total = matchingTxs.reduce((sum, t) => sum + t.amount, 0);
-        const count = matchingTxs.length;
-        return { ...s, total, count, txs: matchingTxs };
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [suppliers, clients]);
-
   const activeSupplier = useMemo(
-    () => (selectedSupplier ? supplierStats.find((s) => s.id === selectedSupplier) : null),
-    [supplierStats, selectedSupplier]
+    () => (selectedSupplier ? (suppliers || []).find((s) => s.id === selectedSupplier) : null),
+    [suppliers, selectedSupplier]
   );
 
   const expenseDateRange = useMemo(
@@ -218,30 +222,37 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
     [filterDateFrom, filterDateTo]
   );
 
-  const filteredSupplierTxs = useMemo(() => {
-    if (!activeSupplier) return [];
-    let list = [...(activeSupplier.txs || [])];
+  const filteredPurchases = useMemo(() => {
+    let list = [...(purchaseRows || [])];
     if (expenseDateRange.active) {
       const { dateFrom, dateTo } = expenseDateRange;
-      list = list.filter((tx) => {
-        const d = String(tx.date || "");
+      list = list.filter((row) => {
+        const d = String(row.date || "");
         if (dateFrom && d < dateFrom) return false;
         if (dateTo && d > dateTo) return false;
         return true;
       });
     }
-    list.sort((a, b) => {
-      const c = String(b.date || "").localeCompare(String(a.date || ""));
-      if (c !== 0) return c;
-      return Number(b.id) - Number(a.id);
-    });
     return list;
-  }, [activeSupplier, expenseDateRange]);
+  }, [purchaseRows, expenseDateRange]);
 
   const filteredSupplierStats = useMemo(() => {
-    const total = filteredSupplierTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-    return { total, count: filteredSupplierTxs.length };
-  }, [filteredSupplierTxs]);
+    const total = filteredPurchases.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    return { total, count: filteredPurchases.length };
+  }, [filteredPurchases]);
+
+  const purchasePageCount = Math.max(1, Math.ceil(filteredPurchases.length / PURCHASE_PAGE_SIZE));
+
+  useEffect(() => {
+    setPurchasePage(0);
+  }, [expenseDateRange.dateFrom, expenseDateRange.dateTo, expenseDateRange.active]);
+
+  const pagedPurchases = useMemo(() => {
+    const maxPage = Math.max(0, purchasePageCount - 1);
+    const page = Math.min(purchasePage, maxPage);
+    const start = page * PURCHASE_PAGE_SIZE;
+    return filteredPurchases.slice(start, start + PURCHASE_PAGE_SIZE);
+  }, [filteredPurchases, purchasePage, purchasePageCount]);
 
   const activeClientTxName = form.clientName;
 
@@ -370,7 +381,7 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
                       : expenseDateRange.dateFrom
                         ? `من ${expenseDateRange.dateFrom}`
                         : `حتى ${expenseDateRange.dateTo}`
-                    : "فلترة المعاملات بالتاريخ"}
+                    : "فلترة المشتريات بالتاريخ"}
                 </Text>
                 <Text style={{ fontSize: 11, color: "#64748b" }}>
                   {dateFiltersExpanded ? "▲" : "▼"}
@@ -428,69 +439,122 @@ export default function SupplierDetail({ selectedSupplier, setSelectedSupplier }
             ) : null}
           </View>
 
-          {activeSupplier.txs.length === 0 ? (
+          {purchaseRows.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📭</Text>
-              <Text style={styles.emptyText}>لا توجد معاملات</Text>
+              <Text style={styles.emptyText}>لا توجد مشتريات</Text>
             </View>
-          ) : filteredSupplierTxs.length === 0 ? (
+          ) : filteredPurchases.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📭</Text>
-              <Text style={styles.emptyText}>لا توجد معاملات ضمن الفترة المحددة</Text>
+              <Text style={styles.emptyText}>لا توجد مشتريات ضمن الفترة المحددة</Text>
             </View>
           ) : (
-            <View style={styles.txList}>
-              {filteredSupplierTxs.map((tx) => (
-                <View key={tx.id} style={[styles.txItemStack, { borderColor: "rgba(251,146,60,0.3)" }]}>
-                  <View style={styles.txItemRow}>
-                    <Text style={styles.txIcon}>🔨</Text>
-                    <View style={[styles.tag, { backgroundColor: "rgba(99,102,241,0.2)" }]}>
-                      <Text style={[styles.tagText, { color: "#818cf8" }]}>👤 {tx.clientName}</Text>
-                    </View>
-                    <View style={[styles.tag, { backgroundColor: "rgba(251,146,60,0.2)" }]}>
-                      <Text style={[styles.tagText, { color: "#fb923c" }]}>{tx.cat}</Text>
-                    </View>
-                    <Text style={styles.txDate}>{tx.date}</Text>
-                  </View>
-                  <View style={styles.txTags}>
-                    {tx.note ? <Text style={styles.txNote}>{tx.note}</Text> : null}
-                  </View>
-                  <View style={styles.txItemActionsRow}>
-                    <Text style={[styles.txAmount, { color: "#fb923c", minWidth: undefined }]}>
-                      -{fmt(tx.amount)} {CURRENCY}
-                    </Text>
-                    <View style={styles.txItemButtons}>
-                      <TouchableOpacity
-                        style={styles.txEditBtn}
-                        onPress={() => {
-                          setForm({
-                            editTxId: tx.id,
-                            clientId: tx.clientId,
-                            clientName: tx.clientName || "",
-                            txType: tx.type,
-                            amount: tx.amount,
-                            cat: tx.cat,
-                            note: tx.note || "",
-                            date: tx.date,
-                            workerId: tx.workerId,
-                            supplierId: tx.supplierId,
-                          });
-                          setFormErrors({});
-                          setModal("addClientTx");
-                        }}
-                      >
-                        <Text style={styles.txEditBtnText}>تعديل</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.txDeleteBtn}
-                        onPress={() => deleteClientTx(tx.clientId, tx.id)}
-                      >
-                        <Text style={styles.txDeleteBtnText}>حذف</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+            <View style={styles.stockTableCard}>
+              <View style={styles.stockTableHeader}>
+                <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                  <Text style={styles.stockTableHeaderText} numberOfLines={1}>
+                    المادة
+                  </Text>
                 </View>
-              ))}
+                <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                  <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                    التاريخ
+                  </Text>
+                </View>
+                <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                  <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                    المبلغ
+                  </Text>
+                </View>
+              </View>
+              {pagedPurchases.map((row, index) => {
+                const isLast = index === pagedPurchases.length - 1;
+                const unitLabel = row.unit ? getStockUnitLabel(row.unit) : "";
+                const qtyLine =
+                  row.source === "stock" && row.quantity > 0
+                    ? `${fmt(row.quantity)}${unitLabel ? ` ${unitLabel}` : ""}`
+                    : row.detail || "";
+                return (
+                  <View
+                    key={row.id}
+                    style={[
+                      styles.stockTableRow,
+                      index % 2 === 1 && styles.stockTableRowAlt,
+                      isLast && purchasePageCount <= 1 && styles.stockTableRowLast,
+                    ]}
+                  >
+                    <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                      <Text style={styles.stockTableCellName} numberOfLines={2}>
+                        {row.material}
+                      </Text>
+                      {qtyLine ? (
+                        <Text style={styles.stockTableCellSub} numberOfLines={1}>
+                          {qtyLine}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                      <Text style={[styles.stockTableCell, styles.stockTableCellCenter]} numberOfLines={1}>
+                        {row.date || "—"}
+                      </Text>
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                      <Text
+                        style={[styles.stockTableCell, styles.stockTableCellCenter, { color: "#a78bfa" }]}
+                        numberOfLines={1}
+                      >
+                        {fmt(row.amount)} {CURRENCY}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+              <View style={styles.stockTableFooter}>
+                <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                  <Text style={styles.stockTableFooterText}>الإجمالي ({filteredPurchases.length})</Text>
+                </View>
+                <View style={[styles.stockTableCol, styles.stockTableColPhone]} />
+                <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                  <Text
+                    style={[
+                      styles.stockTableFooterText,
+                      styles.stockTableCellCenter,
+                      { color: "#a78bfa", width: "100%" },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {fmt(filteredSupplierStats.total)} {CURRENCY}
+                  </Text>
+                </View>
+              </View>
+              {purchasePageCount > 1 ? (
+                <View style={styles.stockTablePager}>
+                  <TouchableOpacity
+                    style={[
+                      styles.stockTablePagerBtn,
+                      purchasePage === 0 && styles.stockTablePagerBtnDisabled,
+                    ]}
+                    onPress={() => setPurchasePage((p) => Math.max(0, p - 1))}
+                    disabled={purchasePage === 0}
+                  >
+                    <Text style={styles.stockTablePagerBtnText}>السابق</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.stockTablePagerInfo}>
+                    صفحة {Math.min(purchasePage, purchasePageCount - 1) + 1} من {purchasePageCount}
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.stockTablePagerBtn,
+                      purchasePage >= purchasePageCount - 1 && styles.stockTablePagerBtnDisabled,
+                    ]}
+                    onPress={() => setPurchasePage((p) => Math.min(purchasePageCount - 1, p + 1))}
+                    disabled={purchasePage >= purchasePageCount - 1}
+                  >
+                    <Text style={styles.stockTablePagerBtnText}>التالي</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </View>
           )}
         </View>

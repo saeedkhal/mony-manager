@@ -43,6 +43,7 @@ export const DEFAULT_STOCK_ITEMS = [
 export const NAV_ITEMS = [
   ["dashboard", "📊", "الرئيسية"],
   ["clients", "👥", "العملاء"],
+  ["deliveries", "🚚", "مواعيد التسليم"],
   ["warehouse", "📦", "المخزن"],
   ["workers", "👷", "الصنايعية"],
   ["suppliers", "🏭", "الموردين"],

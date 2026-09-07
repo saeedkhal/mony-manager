@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { BarChart } from "react-native-chart-kit";
 import { useApp } from "../context/AppContext";
@@ -9,6 +9,7 @@ import { CURRENCY, STATUS_LABELS } from "../constants";
 import { fmt } from "../utils/helpers";
 import styles, { SCREEN_WIDTH } from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
+import { collectDeliveryAlerts, todayYmd } from "../utils/deliveryReminders";
 
 /**
  * Must match `style.paddingRight` on BarChart (chart-kit uses it as the left Y-axis gutter in px).
@@ -217,6 +218,31 @@ export default function Dashboard() {
   const totalSales = totalIncome + totalGenIncome;
   const clientNetProfit = totalIncome - totalClientExp;
   const generalNetProfit = totalGenIncome - totalGenExp;
+  const deliveryAlerts = useMemo(() => collectDeliveryAlerts(fyClients), [fyClients]);
+
+  useEffect(() => {
+    if (!isFocused || deliveryAlerts.length === 0) return undefined;
+    let cancelled = false;
+    const today = todayYmd();
+    (async () => {
+      try {
+        const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+        const shown = await AsyncStorage.getItem("omola_delivery_alert_day");
+        if (cancelled || shown === today) return;
+        const lines = deliveryAlerts
+          .slice(0, 8)
+          .map((a) => `• ${a.client.name}: ${a.label} (${a.date})`);
+        Alert.alert("تنبيه مواعيد التسليم", lines.join("\n"), [
+          { text: "حسناً" },
+          { text: "عرض المواعيد", onPress: () => navigation.navigate("deliveries") },
+        ]);
+        await AsyncStorage.setItem("omola_delivery_alert_day", today);
+      } catch (_) {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFocused, deliveryAlerts]);
 
   return (
     <ScreenLayout>

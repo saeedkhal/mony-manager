@@ -11,6 +11,7 @@ import FiscalYear from "../screens/FiscalYear";
 import Backups from "../screens/Backups";
 import Warehouse from "../screens/Warehouse";
 import ClientStatement from "../screens/ClientStatement";
+import Deliveries from "../screens/Deliveries";
 
 const Stack = createNativeStackNavigator();
 
@@ -28,6 +29,7 @@ export default function RootNavigator() {
     >
       <Stack.Screen name="dashboard" component={Dashboard} />
       <Stack.Screen name="clients" component={Clients} />
+      <Stack.Screen name="deliveries" component={Deliveries} />
       <Stack.Screen name="clientStatement" component={ClientStatement} />
       <Stack.Screen name="warehouse" component={Warehouse} />
       <Stack.Screen name="workers" component={Workers} />
