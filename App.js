@@ -9,7 +9,7 @@ import { AppProvider, useApp } from "./context/AppContext";
 import Header from "./components/Header";
 import Drawer from "./components/Drawer";
 import RootNavigator from "./navigation/RootNavigator";
-import { NAV_ITEMS } from "./constants";
+import { DEV_RESET_NAV_ITEM, NAV_ITEMS } from "./constants";
 import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
 import { ensureFiscalYearLabel } from "./utils/db";
 import styles from "./styles/AppStyles";
@@ -110,7 +110,7 @@ function AppContent() {
       <Drawer
         visible={showDrawer}
         onClose={closeDrawer}
-        navItems={NAV_ITEMS}
+        navItems={__DEV__ ? [...NAV_ITEMS, DEV_RESET_NAV_ITEM] : NAV_ITEMS}
         activeTab={activeTab}
         onTabChange={navigateTo}
         safeAreaBottom={insets.bottom}

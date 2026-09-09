@@ -3654,6 +3654,56 @@ export async function restoreDatabaseFromBackup(bytes, fileName = "") {
   return work;
 }
 
+/**
+ * Wipe all local app data and recreate an empty schema (dev only).
+ * Native: drop tables then initSchema (default stock items + empty FY).
+ * Web: remove AsyncStorage mall_v4.
+ */
+export async function resetLocalDatabase() {
+  if (!__DEV__) {
+    const err = new Error("RESET_DEV_ONLY");
+    err.code = "RESET_DEV_ONLY";
+    throw err;
+  }
+  const work = dbQueue.then(async () => {
+    try {
+      const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+      await AsyncStorage.removeItem("omola_delivery_alert_day");
+    } catch (_) {
+      /* ignore */
+    }
+    if (IS_WEB) {
+      const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+      await AsyncStorage.removeItem(WEB_STORAGE_KEY);
+      return;
+    }
+    const database = await openDb();
+    await database.execAsync(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE IF EXISTS supplier_transactions;
+      DROP TABLE IF EXISTS worker_transactions;
+      DROP TABLE IF EXISTS stock_movements;
+      DROP TABLE IF EXISTS stock_items;
+      DROP TABLE IF EXISTS client_transactions;
+      DROP TABLE IF EXISTS clients;
+      DROP TABLE IF EXISTS general;
+      DROP TABLE IF EXISTS workers;
+      DROP TABLE IF EXISTS suppliers;
+      DROP TABLE IF EXISTS settings;
+      DROP TABLE IF EXISTS fiscal_years;
+      PRAGMA foreign_keys = ON;
+    `);
+    try {
+      await database.execAsync("DELETE FROM sqlite_sequence");
+    } catch (_) {
+      /* ignore */
+    }
+    await initSchema(database);
+  });
+  dbQueue = work.catch(() => {});
+  return work;
+}
+
 export async function getDatabaseBackupPayload() {
   try {
     if (IS_WEB) {

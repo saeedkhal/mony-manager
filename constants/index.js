@@ -54,3 +54,6 @@ export const NAV_ITEMS = [
   ["fiscalyear", "📅", "السنة المالية"],
   ["backups", "☁️", "نسخ Google Drive"],
 ];
+
+/** Drawer item for the local DB reset screen — shown only in development. */
+export const DEV_RESET_NAV_ITEM = ["devReset", "🧹", "مسح البيانات"];

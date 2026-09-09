@@ -12,6 +12,7 @@ import Backups from "../screens/Backups";
 import Warehouse from "../screens/Warehouse";
 import ClientStatement from "../screens/ClientStatement";
 import Deliveries from "../screens/Deliveries";
+import DevReset from "../screens/DevReset";
 
 const Stack = createNativeStackNavigator();
 
@@ -39,6 +40,7 @@ export default function RootNavigator() {
       <Stack.Screen name="zakat" component={Zakat} />
       <Stack.Screen name="fiscalyear" component={FiscalYear} />
       <Stack.Screen name="backups" component={Backups} />
+      {__DEV__ ? <Stack.Screen name="devReset" component={DevReset} /> : null}
     </Stack.Navigator>
   );
 }
