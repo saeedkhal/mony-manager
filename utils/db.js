@@ -69,13 +69,104 @@ async function setWebState(data) {
 
 let dbQueue = Promise.resolve();
 let rawDb = null;
+/** After replacing the .db file on disk, next openDb must bypass expo-sqlite's connection cache. */
+let forceNewConnection = false;
+
+export function markDatabaseFileReplaced() {
+  forceNewConnection = true;
+}
+
+function uint8ArrayToBase64(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let out = "";
+  for (let i = 0; i < u8.length; i += 3) {
+    const a = u8[i];
+    const b = i + 1 < u8.length ? u8[i + 1] : 0;
+    const c = i + 2 < u8.length ? u8[i + 2] : 0;
+    out += chars[a >> 2];
+    out += chars[((a & 3) << 4) | (b >> 4)];
+    out += i + 1 < u8.length ? chars[((b & 15) << 2) | (c >> 6)] : "=";
+    out += i + 2 < u8.length ? chars[c & 63] : "=";
+  }
+  return out;
+}
+
+/** Absolute path to the on-disk SQLite folder (legacy FileSystem URI). */
+function getSqliteDirectoryUri() {
+  const FileSystem = require("expo-file-system/legacy");
+  const SQLite = require("expo-sqlite");
+  if (SQLite.defaultDatabaseDirectory) {
+    const raw = String(SQLite.defaultDatabaseDirectory);
+    if (raw.startsWith("file:")) return raw.endsWith("/") ? raw : `${raw}/`;
+    const withSlash = raw.endsWith("/") ? raw : `${raw}/`;
+    return withSlash.startsWith("/") ? `file://${withSlash}` : `file:///${withSlash}`;
+  }
+  return `${FileSystem.documentDirectory}SQLite/`;
+}
+
+/** Delete mall_v4.db and WAL/SHM/journal sidecars. Connection must be closed first. */
+async function wipeNativeDatabaseFiles() {
+  const FileSystem = require("expo-file-system/legacy");
+  const SQLite = require("expo-sqlite");
+  const dir = getSqliteDirectoryUri();
+  try {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  } catch (_) {
+    /* ignore */
+  }
+  for (const name of [DB_NAME, `${DB_NAME}-wal`, `${DB_NAME}-shm`, `${DB_NAME}-journal`]) {
+    try {
+      await FileSystem.deleteAsync(`${dir}${name}`, { idempotent: true });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  try {
+    await SQLite.deleteDatabaseAsync(DB_NAME);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+async function closeCachedDb() {
+  if (!rawDb) return;
+  try {
+    await rawDb.closeAsync();
+  } catch (_) {
+    /* ignore */
+  }
+  rawDb = null;
+}
 
 /** Open DB once (with retries). Called only from runDb. */
 async function openDb() {
-  if (rawDb) return rawDb;
+  if (rawDb && !forceNewConnection) return rawDb;
+  if (forceNewConnection && rawDb) {
+    await closeCachedDb();
+  }
   const SQLite = require("expo-sqlite");
-  const connection = await SQLite.openDatabaseAsync(DB_NAME);
-  await connection.execAsync("PRAGMA busy_timeout = 30000; PRAGMA journal_mode = WAL;");
+  const openOptions = forceNewConnection ? { useNewConnection: true } : undefined;
+  forceNewConnection = false;
+  let connection = await SQLite.openDatabaseAsync(DB_NAME, openOptions);
+  try {
+    await connection.execAsync("PRAGMA busy_timeout = 30000; PRAGMA journal_mode = WAL;");
+  } catch (e) {
+    // Stale native handle after Fast Refresh / failed restore — drop and reopen once.
+    if (isNativeDbInvalidError(e)) {
+      try {
+        await connection.closeAsync();
+      } catch (_) {
+        /* ignore */
+      }
+      rawDb = null;
+      connection = await SQLite.openDatabaseAsync(DB_NAME, { useNewConnection: true });
+      await connection.execAsync("PRAGMA busy_timeout = 30000; PRAGMA journal_mode = WAL;");
+    } else {
+      throw e;
+    }
+  }
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       await initSchema(connection);
@@ -3595,38 +3686,67 @@ async function restoreWebStateFromJsonBackup(bytes) {
   });
 }
 
+/**
+ * Replace the on-disk SQLite file with serialized backup bytes.
+ * Uses legacy FileSystem write (base64) — avoids backupDatabaseAsync which
+ * fails with "unable to open database file" / NPE when WAL sidecars linger.
+ */
 async function restoreNativeDatabaseFromBytes(bytes) {
   if (!isSqliteBackupBytes(bytes)) {
     throw new Error("ملف قاعدة البيانات غير صالح (.db).");
   }
+
+  console.warn("[restore] writing .db via FileSystem (no backupDatabaseAsync)");
+
   const SQLite = require("expo-sqlite");
-  if (rawDb) {
+  const FileSystem = require("expo-file-system/legacy");
+
+  // Drizzle Studio keeps a sync connection open — must close it before replacing the file.
+  try {
+    const { invalidateDrizzleStudioDb } = require("../components/DrizzleStudio");
+    invalidateDrizzleStudioDb();
+  } catch (_) {
+    /* ignore if plugin unavailable */
+  }
+
+  await closeCachedDb();
+  await wipeNativeDatabaseFiles();
+
+  const dir = getSqliteDirectoryUri();
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+
+  const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const destPath = `${dir}${DB_NAME}`;
+  await FileSystem.writeAsStringAsync(destPath, uint8ArrayToBase64(payload), {
+    encoding: "base64",
+  });
+
+  const info = await FileSystem.getInfoAsync(destPath);
+  if (!info?.exists || !(info.size > 0)) {
+    throw new Error("تعذر كتابة ملف النسخة الاحتياطية على الجهاز.");
+  }
+
+  // Next readers must not reuse expo-sqlite's cached handle to the old file.
+  markDatabaseFileReplaced();
+
+  // Confirm SQLite can open the restored file, then keep that connection as rawDb
+  // so reloadFromDatabase reads the new data immediately (no app restart).
+  const connection = await SQLite.openDatabaseAsync(DB_NAME, { useNewConnection: true });
+  forceNewConnection = false;
+  try {
+    await connection.execAsync("PRAGMA busy_timeout = 30000; PRAGMA journal_mode = WAL;");
+    await connection.getFirstAsync("SELECT 1 AS ok");
+    await initSchema(connection);
+    rawDb = connection;
+  } catch (e) {
     try {
-      await rawDb.closeAsync();
+      await connection.closeAsync();
     } catch (_) {
       /* ignore */
     }
     rawDb = null;
-  }
-  try {
-    await SQLite.deleteDatabaseAsync(DB_NAME);
-  } catch (_) {
-    /* ignore */
-  }
-
-  const memDb = await SQLite.deserializeDatabaseAsync(bytes);
-  const fileDb = await SQLite.openDatabaseAsync(DB_NAME);
-  try {
-    await SQLite.backupDatabaseAsync({
-      sourceDatabase: memDb,
-      sourceDatabaseName: "main",
-      destDatabase: fileDb,
-      destDatabaseName: "main",
-    });
-  } finally {
-    await memDb.closeAsync();
-    await fileDb.closeAsync();
-    rawDb = null;
+    markDatabaseFileReplaced();
+    throw e;
   }
 }
 

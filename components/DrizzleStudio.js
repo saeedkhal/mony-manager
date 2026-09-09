@@ -5,10 +5,26 @@ const DB_NAME = "mall_v4.db";
 
 // Same DB name as utils/db.js so we open the same file.
 let db = null;
+
+/**
+ * Close the sync handle held for Drizzle Studio so restore can replace the .db file.
+ * Must be called before wiping/replacing mall_v4.db on disk.
+ */
+export function invalidateDrizzleStudioDb() {
+  if (!db) return;
+  try {
+    db.closeSync();
+  } catch (_) {
+    /* ignore */
+  }
+  db = null;
+}
+
 function getDb() {
-  if (!db) db = SQLite.openDatabaseSync(DB_NAME);
+  if (!db) db = SQLite.openDatabaseSync(DB_NAME, { useNewConnection: true });
   return db;
 }
+
 /**
  * Registers the app's SQLite database with Drizzle Studio so the dev plugin can show data.
  * Ensures schema exists so Studio always sees tables (even if app hasn't loaded data yet).

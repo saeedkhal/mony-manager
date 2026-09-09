@@ -47,7 +47,9 @@
     },
     "plugins": [
       "expo-sqlite",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-background-task",
+      "expo-task-manager"
     ],
     "extra": {
       "eas": {

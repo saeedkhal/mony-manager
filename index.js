@@ -1,4 +1,6 @@
 import "./setupNativeDefaults";
+// Define background task in global scope before the root component mounts.
+import "./utils/autoDriveBackupTask";
 import { registerRootComponent } from "expo";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 

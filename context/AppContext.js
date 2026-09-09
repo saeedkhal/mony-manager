@@ -30,6 +30,8 @@ export function AppProvider({ children }) {
   const [form, setForm] = useState({});
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  /** Bumped after restore/reset so DrizzleStudio remounts on a fresh SQLite connection. */
+  const [dbRevision, setDbRevision] = useState(0);
 
   const hydrateFromDatabase = useCallback(async () => {
     await initState();
@@ -65,7 +67,12 @@ export function AppProvider({ children }) {
 
   const reloadFromDatabase = useCallback(async () => {
     setLoaded(false);
+    setDbRevision((n) => n + 1);
     try {
+      // Clear transient UI so old client/form state cannot linger after restore.
+      setModal(null);
+      setForm({});
+      setShowClientPicker(false);
       await hydrateFromDatabase();
     } finally {
       setLoaded(true);
@@ -131,6 +138,7 @@ export function AppProvider({ children }) {
   const value = useMemo(
     () => ({
       loaded,
+      dbRevision,
       modal,
       setModal,
       form,
@@ -148,6 +156,7 @@ export function AppProvider({ children }) {
     }),
     [
       loaded,
+      dbRevision,
       modal,
       form,
       activeFiscalYearId,

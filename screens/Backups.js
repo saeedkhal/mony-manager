@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,9 +6,12 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Switch,
+  Platform,
 } from "react-native";
 import * as Google from "expo-auth-session/providers/google";
 import * as DocumentPicker from "expo-document-picker";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { useApp } from "../context/AppContext";
@@ -16,13 +19,21 @@ import { getDatabaseBackupPayload, restoreDatabaseFromBackup } from "../utils/db
 import {
   clearStoredGoogleAuth,
   downloadBackupFileFromDrive,
-  enforceDriveBackupRetention,
   GOOGLE_DRIVE_EXTRA_SCOPES,
   listBackupFilesFromDrive,
   loadStoredTokenResponse,
   persistTokenResponse,
-  uploadDatabaseBackupToDrive,
 } from "../utils/googleDriveBackup";
+import {
+  AUTO_BACKUP_INTERVALS,
+  backupFileName,
+  formatCountdownRemaining,
+  loadAutoBackupSettings,
+  performDriveBackupUpload,
+  runAutoDriveBackupIfDue,
+  updateAutoBackupSchedule,
+} from "../utils/autoDriveBackup";
+import { syncAutoDriveBackupTaskRegistration } from "../utils/autoDriveBackupTask";
 import {
   getExpoAppSlug,
   getExpoProjectFullName,
@@ -34,12 +45,6 @@ import {
 } from "../constants/googleDriveConfig";
 import styles from "../styles/AppStyles";
 import ScreenLayout from "../components/ScreenLayout";
-
-function backupFileName(ext) {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  return `mall_backup_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}.${ext}`;
-}
 
 function formatBytes(n) {
   if (n == null || Number.isNaN(Number(n))) return "—";
@@ -62,6 +67,11 @@ function formatDriveTime(iso) {
 function isRestorableBackupName(name) {
   const n = String(name || "").toLowerCase();
   return n.endsWith(".db") || n.endsWith(".json");
+}
+
+function hourLabel(hour) {
+  const h = Math.min(23, Math.max(0, Number(hour) || 0));
+  return `${String(h).padStart(2, "0")}:00`;
 }
 
 export default function Backups() {
@@ -94,9 +104,25 @@ export default function Backups() {
   const [activeTab, setActiveTab] = useState("drive");
   const [listError, setListError] = useState("");
 
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoInterval, setAutoInterval] = useState("weekly");
+  const [autoHour, setAutoHour] = useState(2);
+  const [autoNextDueAt, setAutoNextDueAt] = useState(null);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [showHourPicker, setShowHourPicker] = useState(false);
+  const [countdownTick, setCountdownTick] = useState(0);
+
   const refreshLocalAuthFlag = useCallback(async () => {
     const t = await loadStoredTokenResponse();
     setHasLocalAuth(!!t?.accessToken);
+  }, []);
+
+  const refreshAutoSettings = useCallback(async () => {
+    const s = await loadAutoBackupSettings();
+    setAutoEnabled(!!s.enabled);
+    setAutoInterval(s.interval || "weekly");
+    setAutoHour(typeof s.hour === "number" ? s.hour : 2);
+    setAutoNextDueAt(s.nextDueAt || null);
   }, []);
 
   const loadList = useCallback(async () => {
@@ -123,7 +149,8 @@ export default function Backups() {
 
   useEffect(() => {
     refreshLocalAuthFlag();
-  }, [loaded, refreshLocalAuthFlag]);
+    refreshAutoSettings();
+  }, [loaded, refreshLocalAuthFlag, refreshAutoSettings]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -152,6 +179,49 @@ export default function Backups() {
     if (!loaded || !hasLocalAuth) return;
     loadList();
   }, [loaded, hasLocalAuth, loadList]);
+
+  useEffect(() => {
+    if (!autoEnabled || !autoNextDueAt) return undefined;
+    const id = setInterval(() => setCountdownTick((n) => n + 1), 60000);
+    return () => clearInterval(id);
+  }, [autoEnabled, autoNextDueAt]);
+
+  const countdownText = useMemo(() => {
+    void countdownTick;
+    if (!autoEnabled) return null;
+    return formatCountdownRemaining(autoNextDueAt);
+  }, [autoEnabled, autoNextDueAt, countdownTick]);
+
+  const persistAutoSchedule = useCallback(
+    async ({ enabled, interval, hour }) => {
+      setAutoSaving(true);
+      try {
+        const next = await updateAutoBackupSchedule({
+          enabled: enabled != null ? enabled : autoEnabled,
+          interval: interval || autoInterval,
+          hour: hour != null ? hour : autoHour,
+        });
+        setAutoEnabled(!!next.enabled);
+        setAutoInterval(next.interval);
+        setAutoHour(next.hour);
+        setAutoNextDueAt(next.nextDueAt || null);
+        await syncAutoDriveBackupTaskRegistration();
+        if (next.enabled) {
+          const result = await runAutoDriveBackupIfDue();
+          if (result.ran) {
+            await refreshAutoSettings();
+            await loadList();
+          }
+        }
+      } catch (e) {
+        Alert.alert("الجدولة", e?.message || String(e));
+        await refreshAutoSettings();
+      } finally {
+        setAutoSaving(false);
+      }
+    },
+    [autoEnabled, autoInterval, autoHour, refreshAutoSettings, loadList]
+  );
 
   const onSignOut = async () => {
     await clearStoredGoogleAuth();
@@ -211,14 +281,7 @@ export default function Backups() {
     setUploading(true);
     setListError("");
     try {
-      const payload = await getDatabaseBackupPayload();
-      if (!payload) {
-        Alert.alert("نسخ احتياطي", "لا توجد بيانات محلية للنسخ (ويب بدون بيانات بعد).");
-        return;
-      }
-      const name = backupFileName(payload.extension);
-      await uploadDatabaseBackupToDrive({ fileName: name, bytes: payload.bytes });
-      await enforceDriveBackupRetention(5);
+      await performDriveBackupUpload();
       await loadList();
       Alert.alert("تم", "تم رفع النسخة إلى Google Drive وتحديث القائمة (آخر 5 نسخ فقط).");
     } catch (e) {
@@ -330,6 +393,12 @@ export default function Backups() {
     promptAsync();
   };
 
+  const hourPickerValue = useMemo(() => {
+    const d = new Date();
+    d.setHours(autoHour, 0, 0, 0);
+    return d;
+  }, [autoHour]);
+
   return (
     <ScreenLayout>
       <View style={styles.backupView}>
@@ -407,6 +476,99 @@ export default function Backups() {
                   <Text style={styles.btnText}>⬆️ نسخ الآن إلى Drive</Text>
                 )}
               </TouchableOpacity>
+            )}
+
+            {hasLocalAuth && Platform.OS !== "web" && (
+              <View style={styles.backupAutoBox}>
+                <View style={styles.backupAutoHeader}>
+                  <Text style={styles.backupAutoTitle}>نسخ احتياطي تلقائي</Text>
+                  <Switch
+                    value={autoEnabled}
+                    disabled={autoSaving}
+                    onValueChange={(v) => persistAutoSchedule({ enabled: v })}
+                    trackColor={{ false: "#475569", true: "#34d399" }}
+                    thumbColor="#f8fafc"
+                  />
+                </View>
+
+                <Text style={styles.backupHint}>
+                  يعمل بصمت في الخلفية. يحتاج إنترنت وحساب Google مربوط. لو فات الموعد بدون نت، يتنفّذ عند رجوع
+                  الاتصال. يُحتفظ بآخر 5 نسخ فقط.
+                </Text>
+
+                <Text style={styles.backupAutoLabel}>الفترة</Text>
+                <View style={styles.backupAutoChips}>
+                  {AUTO_BACKUP_INTERVALS.map((item) => {
+                    const active = autoInterval === item.id;
+                    return (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.backupAutoChip, active && styles.backupAutoChipActive]}
+                        disabled={autoSaving}
+                        onPress={() => persistAutoSchedule({ interval: item.id })}
+                      >
+                        <Text
+                          style={[styles.backupAutoChipText, active && styles.backupAutoChipTextActive]}
+                        >
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.backupAutoLabel}>ساعة التنفيذ</Text>
+                <TouchableOpacity
+                  style={styles.backupAutoHourBtn}
+                  disabled={autoSaving}
+                  onPress={() => setShowHourPicker(true)}
+                >
+                  <Text style={styles.backupAutoHourBtnText}>{hourLabel(autoHour)}</Text>
+                </TouchableOpacity>
+
+                {showHourPicker && (
+                  <DateTimePicker
+                    value={hourPickerValue}
+                    mode="time"
+                    is24Hour
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={(event, date) => {
+                      if (Platform.OS === "android") setShowHourPicker(false);
+                      if (event.type === "dismissed") {
+                        setShowHourPicker(false);
+                        return;
+                      }
+                      if (!date) return;
+                      const h = date.getHours();
+                      if (Platform.OS === "ios") {
+                        setAutoHour(h);
+                      } else {
+                        persistAutoSchedule({ hour: h });
+                      }
+                    }}
+                  />
+                )}
+                {Platform.OS === "ios" && showHourPicker && (
+                  <TouchableOpacity
+                    style={[styles.btn, styles.backupBtnSecondary]}
+                    onPress={() => {
+                      setShowHourPicker(false);
+                      persistAutoSchedule({ hour: autoHour });
+                    }}
+                  >
+                    <Text style={styles.btnText}>تأكيد الساعة</Text>
+                  </TouchableOpacity>
+                )}
+
+                {autoEnabled && (
+                  <>
+                    <Text style={styles.backupAutoMeta}>
+                      النسخة القادمة: {formatDriveTime(autoNextDueAt)}
+                    </Text>
+                    <Text style={styles.backupAutoCountdown}>{countdownText}</Text>
+                  </>
+                )}
+              </View>
             )}
 
             {hasLocalAuth && (

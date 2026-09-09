@@ -13,6 +13,7 @@ import { DEV_RESET_NAV_ITEM, NAV_ITEMS } from "./constants";
 import { getFiscalYearLabel } from "./utils/helpers";
 import styles from "./styles/AppStyles";
 import DrizzleStudio from "./components/DrizzleStudio";
+import AutoDriveBackupRunner from "./components/AutoDriveBackupRunner";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -109,10 +110,16 @@ function AppContent() {
   );
 }
 
+function DrizzleStudioHost() {
+  const { dbRevision } = useApp();
+  return <DrizzleStudio key={dbRevision} />;
+}
+
 export default function App() {
   return (
     <AppProvider>
-      <DrizzleStudio />
+      <DrizzleStudioHost />
+      <AutoDriveBackupRunner />
       <AppContent />
     </AppProvider>
   );
