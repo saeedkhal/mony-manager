@@ -7,8 +7,6 @@ export default function Header({
   onMenuPress,
   title,
   activeFiscalYearLabel,
-  onResetToCurrentFiscalYear,
-  getCurrentFiscalYear,
   getFiscalYearLabel,
   headerActions,
 }) {
@@ -35,11 +33,6 @@ export default function Header({
           </View>
         </View>
         <Text style={styles.fyLabelSub}>{getFiscalYearLabel(activeFiscalYearLabel)}</Text>
-        {activeFiscalYearLabel !== getCurrentFiscalYear() && (
-          <TouchableOpacity style={styles.fyResetBtn} onPress={onResetToCurrentFiscalYear}>
-            <Text style={styles.fyResetText}>العودة للحالية</Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -164,17 +157,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#475569",
     fontWeight: "400",
-  },
-  fyResetBtn: {
-    backgroundColor: "rgba(16,185,129,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.3)",
-    borderRadius: 11,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-  },
-  fyResetText: {
-    color: "#10b981",
-    fontSize: 11,
   },
 });

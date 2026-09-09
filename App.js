@@ -10,8 +10,7 @@ import Header from "./components/Header";
 import Drawer from "./components/Drawer";
 import RootNavigator from "./navigation/RootNavigator";
 import { DEV_RESET_NAV_ITEM, NAV_ITEMS } from "./constants";
-import { getCurrentFiscalYear, getFiscalYearLabel } from "./utils/helpers";
-import { ensureFiscalYearLabel } from "./utils/db";
+import { getFiscalYearLabel } from "./utils/helpers";
 import styles from "./styles/AppStyles";
 import DrizzleStudio from "./components/DrizzleStudio";
 
@@ -27,7 +26,6 @@ const AppMain = memo(function AppMain({
   bottomInset,
   onMenuPress,
   activeFiscalYearLabel,
-  onResetToCurrentFiscalYear,
   navigationRef,
   onNavStateChange,
 }) {
@@ -40,8 +38,6 @@ const AppMain = memo(function AppMain({
           onMenuPress={onMenuPress}
           title="مول عمولة"
           activeFiscalYearLabel={activeFiscalYearLabel}
-          onResetToCurrentFiscalYear={onResetToCurrentFiscalYear}
-          getCurrentFiscalYear={getCurrentFiscalYear}
           getFiscalYearLabel={getFiscalYearLabel}
         />
         <NavigationContainer
@@ -62,7 +58,7 @@ function AppContent() {
   const navigationRef = useRef(null);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [showDrawer, setShowDrawer] = useState(false);
-  const { loaded, activeFiscalYearLabel, handleFYChange } = useApp();
+  const { loaded, activeFiscalYearLabel } = useApp();
 
   const openDrawer = useCallback(() => setShowDrawer(true), []);
   const closeDrawer = useCallback(() => setShowDrawer(false), []);
@@ -77,11 +73,6 @@ function AppContent() {
     const route = state.routes[state.index];
     if (route?.name) setActiveTab(route.name === "clientStatement" ? "clients" : route.name);
   }, []);
-
-  const onResetToCurrentFiscalYear = useCallback(async () => {
-    const id = await ensureFiscalYearLabel(getCurrentFiscalYear());
-    if (id != null) await handleFYChange(id, getCurrentFiscalYear());
-  }, [handleFYChange]);
 
   if (!loaded) {
     return (
@@ -103,7 +94,6 @@ function AppContent() {
         bottomInset={insets.bottom}
         onMenuPress={openDrawer}
         activeFiscalYearLabel={activeFiscalYearLabel}
-        onResetToCurrentFiscalYear={onResetToCurrentFiscalYear}
         navigationRef={navigationRef}
         onNavStateChange={onNavStateChange}
       />

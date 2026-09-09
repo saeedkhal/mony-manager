@@ -2,7 +2,14 @@ export const CURRENCY = "ج.م";
 export const CLIENT_EXPENSE_CATS = ["قماش", "خشب وكلف", "مصنعية", "نقل وتركيب", "أخرى"];
 export const WORKER_LEDGER_CATS = ["مستحق", "سلفة", "باقي راتب", "مصنعية"];
 export const SUPPLIER_LEDGER_CATS = ["مستحق", "سداد", "دفعة"];
-export const GENERAL_EXPENSE_CATS = ["إيجار", "أجور عمال", "كهرباء وماء", "مصروفات شخصية", "أخرى"];
+export const GENERAL_EXPENSE_CATS = [
+  "إيجار",
+  "أجور عمال",
+  "كهرباء وماء",
+  "مصروفات شخصية",
+  "مصروف ام عاطف",
+  "أخرى",
+];
 export const GENERAL_INCOME_CATS = ['بيع ستاير', 'بيع أوضة نوم', 'بيع مطبخ', 'بيع ريسبشن', 'بيع موبيليا كاملة', 'أخرى'];
 export const PROJECT_TYPES = ["ستاير", "أوضة نوم", "مطبخ", "ريسبشن", "موبيليا كاملة", "أخرى"];
 export const STATUS_LABELS = {
@@ -52,7 +59,7 @@ export const NAV_ITEMS = [
   ["generalIncome", "💵", "دخل عام"],
   ["zakat", "🌙", "الزكاة"],
   ["fiscalyear", "📅", "السنة المالية"],
-  ["backups", "☁️", "نسخ Google Drive"],
+  ["backups", "☁️", "نسخ احتياطي"],
 ];
 
 /** Drawer item for the local DB reset screen — shown only in development. */

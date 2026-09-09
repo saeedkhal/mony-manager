@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import { View, Text, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, BackHandler } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useApp } from "../context/AppContext";
 import {
@@ -22,11 +22,6 @@ import { FORM_MSG, parsePositiveAmount, isValidDateYmd, trimmed } from "../utils
 const INCOME_COLOR = "#10b981";
 const GENERAL_INCOME_PAGE_SIZE = 5;
 
-function txAmount(t) {
-  const n = Number(t.amount);
-  return Number.isFinite(n) ? n : 0;
-}
-
 export default function GeneralIncome() {
   const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
   const [formErrors, setFormErrors] = useState({});
@@ -34,28 +29,26 @@ export default function GeneralIncome() {
   const deleteGeneralTx = async (id) => {
     try {
       await dbDeleteGeneralTx(id);
-      const removed = generalTxs.find((t) => String(t.id) === String(id));
-      setGeneralTxs((prev) => prev.filter((t) => String(t.id) !== String(id)));
-      if (removed != null) {
-        setTotalIncome((prev) => Math.max(0, prev - txAmount(removed)));
-      } else if (activeFiscalYearId != null) {
-        const t = await getGeneralIncomeTotalAmount(activeFiscalYearId);
-        setTotalIncome(Number(t) || 0);
-      }
+      setTxPage(0);
+      setRowMenuId(null);
+      setRowMenuPos(null);
     } catch (_) {}
   };
   const isFocused = useIsFocused();
   const [generalTxs, setGeneralTxs] = useState([]);
   const [totalIncome, setTotalIncome] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [txPage, setTxPage] = useState(0);
   const listFetchGen = useRef(0);
-  const txsRef = useRef([]);
+  const [rowMenuId, setRowMenuId] = useState(null);
+  const [rowMenuPos, setRowMenuPos] = useState(null);
+  const menuBtnRefs = useRef({});
+  const listRootRef = useRef(null);
 
   useEffect(() => {
-    txsRef.current = generalTxs;
-  }, [generalTxs]);
+    setTxPage(0);
+  }, [activeFiscalYearId]);
 
   useEffect(() => {
     if (!loaded || !isFocused || activeFiscalYearId == null) return;
@@ -67,7 +60,11 @@ export default function GeneralIncome() {
     setHasMore(true);
     setTotalIncome(0);
     Promise.all([
-      getGeneralIncomeTxsPage(activeFiscalYearId, GENERAL_INCOME_PAGE_SIZE, 0),
+      getGeneralIncomeTxsPage(
+        activeFiscalYearId,
+        GENERAL_INCOME_PAGE_SIZE,
+        txPage * GENERAL_INCOME_PAGE_SIZE
+      ),
       getGeneralIncomeTotalAmount(activeFiscalYearId),
     ])
       .then(([{ txs: first, hasMore: hm }, total]) => {
@@ -88,39 +85,7 @@ export default function GeneralIncome() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, isFocused, activeFiscalYearId]);
-
-  const loadMoreIncomeTxs = useCallback(async () => {
-    if (!hasMore || loadingMore || loading || activeFiscalYearId == null) return;
-    const gen = listFetchGen.current;
-    const offset = txsRef.current.length;
-    setLoadingMore(true);
-    try {
-      const { txs: next, hasMore: hm } = await getGeneralIncomeTxsPage(
-        activeFiscalYearId,
-        GENERAL_INCOME_PAGE_SIZE,
-        offset
-      );
-      if (gen !== listFetchGen.current) return;
-      setGeneralTxs((prev) => [...prev, ...(next || [])]);
-      setHasMore(!!hm);
-    } catch (_) {
-      if (gen === listFetchGen.current) setHasMore(false);
-    } finally {
-      if (gen === listFetchGen.current) setLoadingMore(false);
-    }
-  }, [hasMore, loadingMore, loading, activeFiscalYearId]);
-
-  const onScrollIncome = useCallback(
-    (e) => {
-      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-      const threshold = 120;
-      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold) {
-        loadMoreIncomeTxs();
-      }
-    },
-    [loadMoreIncomeTxs]
-  );
+  }, [loaded, isFocused, activeFiscalYearId, txPage]);
 
   const saveGeneralIncome = async () => {
     const err = {};
@@ -146,6 +111,7 @@ export default function GeneralIncome() {
     try {
       await upsertGeneralTx(tx);
       if (fiscalYearId != null) {
+        setTxPage(0);
         listFetchGen.current += 1;
         const gen = listFetchGen.current;
         const [page, total] = await Promise.all([
@@ -163,9 +129,67 @@ export default function GeneralIncome() {
     setForm({});
   };
 
+  const closeRowMenu = () => {
+    setRowMenuId(null);
+    setRowMenuPos(null);
+  };
+
+  useEffect(() => {
+    if (rowMenuId == null) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      closeRowMenu();
+      return true;
+    });
+    return () => sub.remove();
+  }, [rowMenuId]);
+
+  const openRowMenu = (tx) => {
+    if (!tx) return;
+    if (String(rowMenuId) === String(tx.id)) {
+      closeRowMenu();
+      return;
+    }
+    const btn = menuBtnRefs.current[tx.id];
+    const root = listRootRef.current;
+
+    const place = (x, y, w, h) => {
+      setRowMenuId(tx.id);
+      setRowMenuPos({ x, y, w, h, tx });
+    };
+
+    requestAnimationFrame(() => {
+      if (!btn || typeof btn.measureInWindow !== "function") {
+        place(12, 80, 32, 32);
+        return;
+      }
+      if (root && typeof root.measureInWindow === "function") {
+        root.measureInWindow((rx, ry) => {
+          btn.measureInWindow((bx, by, bw, bh) => {
+            place(bx - (rx || 0), by - (ry || 0), bw, bh);
+          });
+        });
+        return;
+      }
+      btn.measureInWindow((x, y, w, h) => place(x, y, w, h));
+    });
+  };
+
+  const openEditGeneralIncomeTx = (t) => {
+    if (!t) return;
+    setFormErrors({});
+    setForm({
+      editTxId: t.id,
+      amount: String(t.amount ?? ""),
+      cat: "",
+      note: t.note || "",
+      date: t.date || "",
+    });
+    setModal("addGeneralIncome");
+  };
+
   return (
-    <View style={{ flex: 1 }}>
-      <ScreenLayout scrollViewProps={{ onScroll: onScrollIncome, scrollEventThrottle: 400 }}>
+    <View style={{ flex: 1 }} ref={listRootRef}>
+      <ScreenLayout>
         <View style={styles.generalView}>
           <TouchableOpacity
             style={[styles.btn, styles.btnGeneralIncome, { marginBottom: 16, alignSelf: "flex-start" }]}
@@ -213,39 +237,167 @@ export default function GeneralIncome() {
                   <Text style={styles.emptyText}>لا يوجد دخل عام في السنة المالية {activeFiscalYearLabel}</Text>
                 </View>
               ) : (
-                <View style={styles.txList}>
-                  {generalTxs.map((t) => {
+                <View style={styles.stockTableCard}>
+                  <View style={styles.stockTableHeader}>
+                    <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                      <Text style={styles.stockTableHeaderText} numberOfLines={1}>
+                        ملاحظة
+                      </Text>
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                      <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                        التاريخ
+                      </Text>
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                      <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                        المبلغ
+                      </Text>
+                    </View>
+                    <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
+                      <Text style={[styles.stockTableHeaderText, styles.stockTableHeaderTextCenter]} numberOfLines={1}>
+                        {" "}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {generalTxs.map((t, index) => {
                     const noteText = (t.note || "").trim();
+                    const isLast = index === generalTxs.length - 1;
                     return (
-                      <View key={t.id} style={[styles.txItem, { borderColor: "rgba(16,185,129,0.2)" }]}>
-                        <Text style={styles.txIcon}>💵</Text>
-                        <View style={styles.txContent}>
-                          {noteText ? (
-                            <Text style={[styles.txNote, { marginTop: 6, alignSelf: "flex-start" }]}>{noteText}</Text>
-                          ) : null}
-                          <Text style={styles.txDate}>{t.date}</Text>
+                      <View
+                        key={t.id}
+                        style={[
+                          styles.stockTableRow,
+                          index % 2 === 1 && styles.stockTableRowAlt,
+                          isLast && txPage <= 0 && styles.stockTableRowLast,
+                        ]}
+                      >
+                        <View style={[styles.stockTableCol, styles.stockTableColName]}>
+                          <Text
+                            style={[styles.stockTableCellName, { color: INCOME_COLOR }]}
+                            numberOfLines={2}
+                          >
+                            {noteText || "—"}
+                          </Text>
                         </View>
-                        <Text style={[styles.txAmount, { color: INCOME_COLOR }]}>
-                          +{fmt(t.amount)} {CURRENCY}
-                        </Text>
-                        <TouchableOpacity style={styles.txDeleteBtn} onPress={() => deleteGeneralTx(t.id)}>
-                          <Text style={styles.txDeleteBtnText}>حذف</Text>
-                        </TouchableOpacity>
+                        <View style={[styles.stockTableCol, styles.stockTableColPhone]}>
+                          <Text style={[styles.stockTableCell, styles.stockTableCellCenter]} numberOfLines={1}>
+                            {t.date || "—"}
+                          </Text>
+                        </View>
+                        <View style={[styles.stockTableCol, styles.stockTableColMoney]}>
+                          <Text
+                            style={[
+                              styles.stockTableCell,
+                              styles.stockTableCellCenter,
+                              { color: INCOME_COLOR },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            +{fmt(t.amount)} {CURRENCY}
+                          </Text>
+                        </View>
+                        <View style={[styles.stockTableCol, styles.stockTableColMenu]}>
+                          <View
+                            collapsable={false}
+                            ref={(el) => {
+                              if (el) menuBtnRefs.current[t.id] = el;
+                              else delete menuBtnRefs.current[t.id];
+                            }}
+                          >
+                            <TouchableOpacity style={styles.stockMenuBtn} onPress={() => openRowMenu(t)}>
+                              <Text style={styles.stockMenuBtnText}>⋮</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
                       </View>
                     );
                   })}
-                  {loadingMore ? (
-                    <View style={{ paddingVertical: 20, alignItems: "center" }}>
-                      <ActivityIndicator color={INCOME_COLOR} />
-                      <Text style={[styles.loadingText, { marginTop: 8, fontSize: 13 }]}>جاري التحميل...</Text>
+
+                  <View style={styles.stockTableFooter}>
+                    <View style={[styles.stockTableCol, { flex: 1, minWidth: 0 }]}>
+                      <Text style={[styles.stockTableCellSub, styles.stockTableCellCenter]}>الإجمالي</Text>
+                      <Text
+                        style={[
+                          styles.stockTableFooterText,
+                          styles.stockTableCellCenter,
+                          { color: INCOME_COLOR, width: "100%" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {fmt(totalIncome)} {CURRENCY}
+                      </Text>
                     </View>
-                  ) : null}
+                    <View style={[styles.stockTableCol, { flex: 1, minWidth: 0 }]} />
+                    <View style={[styles.stockTableCol, { flex: 1, minWidth: 0 }]} />
+                    <View style={[styles.stockTableCol, styles.stockTableColMenu]} />
+                  </View>
+
+                  <View style={styles.stockTablePager}>
+                    <TouchableOpacity
+                      style={[
+                        styles.stockTablePagerBtn,
+                        txPage === 0 && styles.stockTablePagerBtnDisabled,
+                      ]}
+                      onPress={() => setTxPage((p) => Math.max(0, p - 1))}
+                      disabled={txPage === 0}
+                    >
+                      <Text style={styles.stockTablePagerBtnText}>السابق</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.stockTablePagerInfo}>صفحة {txPage + 1}</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.stockTablePagerBtn,
+                        !hasMore && styles.stockTablePagerBtnDisabled,
+                      ]}
+                      onPress={() => setTxPage((p) => p + 1)}
+                      disabled={!hasMore}
+                    >
+                      <Text style={styles.stockTablePagerBtnText}>التالي</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
             </>
           )}
         </View>
       </ScreenLayout>
+      {rowMenuPos?.tx ? (
+        <View style={rowMenuOverlayStyles.layer} pointerEvents="box-none">
+          <Pressable style={rowMenuOverlayStyles.backdrop} onPress={closeRowMenu} />
+          <View
+            style={[
+              styles.stockRowMenu,
+              {
+                top: rowMenuPos.y + rowMenuPos.h + 4,
+                left: rowMenuPos.x,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.stockRowMenuItem}
+              onPress={() => {
+                const tx = rowMenuPos.tx;
+                closeRowMenu();
+                openEditGeneralIncomeTx(tx);
+              }}
+            >
+              <Text style={[styles.stockRowMenuItemText, { color: "#fbbf24" }]}>تعديل</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.stockRowMenuItem}
+              onPress={() => {
+                const tx = rowMenuPos.tx;
+                closeRowMenu();
+                deleteGeneralTx(tx.id);
+              }}
+            >
+              <Text style={[styles.stockRowMenuItemText, { color: "#f43f5e" }]}>حذف</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
       <CustomModal
         visible={modal === "addGeneralIncome"}
         onClose={() => {
@@ -299,3 +451,15 @@ export default function GeneralIncome() {
     </View>
   );
 }
+
+const rowMenuOverlayStyles = StyleSheet.create({
+  layer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
+    direction: "ltr",
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+});

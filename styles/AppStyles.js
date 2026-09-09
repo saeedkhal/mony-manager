@@ -708,6 +708,17 @@ export default StyleSheet.create({
   fiscalYearAddMutedText: { color: "#64748b", fontSize: 14, textAlign: "center", lineHeight: 20 },
   backupView: { gap: 16 },
   backupTitle: { fontSize: 22, fontWeight: "800", color: "#f1f5f9" },
+  backupTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "nowrap",
+  },
+  backupTabBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   backupHint: { color: "#64748b", fontSize: 13, lineHeight: 20, textAlign: "center" },
   backupActionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   backupBtnSecondary: { backgroundColor: "rgba(148,163,184,0.25)" },

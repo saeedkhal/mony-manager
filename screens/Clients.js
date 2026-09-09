@@ -23,12 +23,233 @@ import {
 
 const CLIENTS_PAGE_SIZE = 5;
 
+const OptionChip = React.memo(function OptionChip({ label, selected, onPress }) {
+  return (
+    <TouchableOpacity
+      style={[styles.optionBtn, selected && styles.optionBtnActive]}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
+      <Text style={[styles.optionBtnText, selected && styles.optionBtnTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+});
+
+function AddClientForm({ visible, initialRef, onClose, onSaved }) {
+  const [form, setForm] = useState({});
+  const [formErrors, setFormErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setForm({ ...(initialRef.current || {}) });
+    setFormErrors({});
+    setSaving(false);
+  }, [visible, initialRef]);
+
+  const saveClient = async () => {
+    if (saving) return;
+    if (!trimmed(form.name)) {
+      setFormErrors({ name: FORM_MSG.required });
+      return;
+    }
+    const orderRaw = trimmed(form.orderAmount);
+    let orderAmount = null;
+    if (orderRaw) {
+      orderAmount = parsePositiveAmount(orderRaw);
+      if (orderAmount == null) {
+        setFormErrors({ orderAmount: FORM_MSG.amount });
+        return;
+      }
+    }
+    const deliveryRaw = trimmed(form.deliveryDate);
+    if (deliveryRaw && !isValidDateYmd(deliveryRaw)) {
+      setFormErrors({ deliveryDate: FORM_MSG.date });
+      return;
+    }
+    const deliveryDate = normalizeDeliveryDate(deliveryRaw);
+    const reminderDays = normalizeReminderDays(form.reminderDays, deliveryDate);
+    setFormErrors({});
+    setSaving(true);
+    try {
+      if (form.editId) {
+        const existing = await getClientWithTxs(form.editId);
+        if (!existing) return;
+        await upsertClient({
+          ...existing,
+          name: form.name.trim(),
+          project: form.project || existing.project || PROJECT_TYPES[0],
+          note: form.note || "",
+          phone: trimmed(form.phone),
+          orderAmount,
+          deliveryDate,
+          reminderDays,
+        });
+      } else {
+        await getActiveFiscalYear();
+        const fiscalYearId = await getActiveFiscalYearId();
+        await upsertClient({
+          id: Date.now(),
+          name: form.name.trim(),
+          project: form.project || PROJECT_TYPES[0],
+          status: "active",
+          note: form.note || "",
+          phone: trimmed(form.phone),
+          orderAmount,
+          deliveryDate,
+          reminderDays,
+          fiscalYearId: fiscalYearId ?? null,
+          createdAt: new Date().toISOString().split("T")[0],
+          txs: [],
+        });
+      }
+      await onSaved?.(!form.editId);
+      onClose?.();
+    } catch (_) {
+      setFormErrors({ submit: "تعذر حفظ العميل" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <CustomModal
+      visible={visible}
+      onClose={() => {
+        setFormErrors({});
+        onClose?.();
+      }}
+      centered
+    >
+      <Text style={styles.modalTitle}>{form.editId ? "✏️ تعديل بيانات العميل" : "👤 إضافة عميل جديد"}</Text>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>اسم العميل</Text>
+        <FormTextInput
+          styles={styles}
+          placeholder="مثال: أحمد محمد"
+          placeholderTextColor="#64748b"
+          value={form.name || ""}
+          onChangeText={(text) => {
+            setFormErrors((e) => ({ ...e, name: undefined }));
+            setForm((p) => ({ ...p, name: text }));
+          }}
+          error={formErrors.name}
+        />
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>رقم التليفون</Text>
+        <FormTextInput
+          styles={styles}
+          placeholder="01xxxxxxxxx"
+          placeholderTextColor="#64748b"
+          value={form.phone || ""}
+          onChangeText={(text) => setForm((p) => ({ ...p, phone: text }))}
+          keyboardType="phone-pad"
+        />
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>قيمة الطلبية</Text>
+        <FormTextInput
+          styles={styles}
+          placeholder="0"
+          placeholderTextColor="#64748b"
+          value={form.orderAmount?.toString() || ""}
+          onChangeText={(text) => {
+            setFormErrors((e) => ({ ...e, orderAmount: undefined }));
+            setForm((p) => ({ ...p, orderAmount: text }));
+          }}
+          keyboardType="numeric"
+          error={formErrors.orderAmount}
+        />
+      </View>
+      <FormDateField
+        styles={styles}
+        label="موعد التسليم (اختياري)"
+        value={form.deliveryDate || ""}
+        onChangeValue={(v) => {
+          setFormErrors((e) => ({ ...e, deliveryDate: undefined }));
+          setForm((p) => ({
+            ...p,
+            deliveryDate: v,
+            reminderDays: p.deliveryDate ? p.reminderDays : DEFAULT_REMINDER_DAYS,
+          }));
+        }}
+        active={visible}
+        error={formErrors.deliveryDate}
+      />
+      {form.deliveryDate ? (
+        <TouchableOpacity
+          onPress={() => {
+            setFormErrors((e) => ({ ...e, deliveryDate: undefined }));
+            setForm((p) => ({ ...p, deliveryDate: "", reminderDays: null }));
+          }}
+          style={{ alignSelf: "flex-start", marginTop: -8, marginBottom: 12 }}
+        >
+          <Text style={{ color: "#818cf8", fontSize: 12 }}>مسح موعد التسليم</Text>
+        </TouchableOpacity>
+      ) : null}
+      {form.deliveryDate ? (
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>تنبيه قبل الموعد</Text>
+          <View style={styles.optionsGrid}>
+            {REMINDER_DAY_OPTIONS.map((opt) => {
+              const selected =
+                opt.value == null
+                  ? form.reminderDays == null
+                  : Number(form.reminderDays) === opt.value;
+              return (
+                <OptionChip
+                  key={String(opt.value)}
+                  label={opt.label}
+                  selected={selected}
+                  onPress={() => setForm((p) => ({ ...p, reminderDays: opt.value }))}
+                />
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
+        <FormTextInput
+          styles={styles}
+          placeholder="أي تفاصيل إضافية"
+          placeholderTextColor="#64748b"
+          value={form.note || ""}
+          onChangeText={(text) => setForm((p) => ({ ...p, note: text }))}
+        />
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>نوع المشروع</Text>
+        <View style={styles.optionsGrid}>
+          {PROJECT_TYPES.map((pt) => (
+            <OptionChip
+              key={pt}
+              label={pt}
+              selected={form.project === pt}
+              onPress={() => setForm((p) => ({ ...p, project: pt }))}
+            />
+          ))}
+        </View>
+      </View>
+      {formErrors.submit ? <Text style={styles.fieldErrorText}>{formErrors.submit}</Text> : null}
+      <TouchableOpacity
+        style={[styles.btn, styles.btnPrimary, styles.modalSaveBtn, saving && { opacity: 0.6 }]}
+        onPress={saveClient}
+        disabled={saving}
+      >
+        <Text style={styles.btnText}>{form.editId ? "حفظ التعديلات ✓" : "حفظ العميل ✓"}</Text>
+      </TouchableOpacity>
+    </CustomModal>
+  );
+}
+
 export default function Clients() {
   const route = useRoute();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
-  const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal, setForm, form } = useApp();
-  const [formErrors, setFormErrors] = useState({});
+  const { loaded, activeFiscalYearId, activeFiscalYearLabel, modal, setModal } = useApp();
+  const addClientInitialRef = useRef({});
   const [clients, setClients] = useState([]);
   const [clientTotal, setClientTotal] = useState(0);
   const [clientPage, setClientPage] = useState(0);
@@ -141,78 +362,24 @@ export default function Clients() {
     };
   }, [loaded, isFocused, activeFiscalYearId, selectedClient, pageOptions, clientPage]);
 
-  const saveClient = async () => {
-    if (!trimmed(form.name)) {
-      setFormErrors({ name: FORM_MSG.required });
-      return;
+  const refreshAfterClientSave = async (isNew) => {
+    const nextPage = isNew ? 0 : clientPage;
+    if (isNew) setClientPage(0);
+    listFetchGen.current += 1;
+    const gen = listFetchGen.current;
+    const { clients: rows, total } = await getClientsPage(
+      CLIENTS_PAGE_SIZE,
+      nextPage * CLIENTS_PAGE_SIZE,
+      pageOptions
+    );
+    if (gen === listFetchGen.current) {
+      setClients(rows || []);
+      setClientTotal(Number(total) || 0);
     }
-    const orderRaw = trimmed(form.orderAmount);
-    let orderAmount = null;
-    if (orderRaw) {
-      orderAmount = parsePositiveAmount(orderRaw);
-      if (orderAmount == null) {
-        setFormErrors({ orderAmount: FORM_MSG.amount });
-        return;
-      }
-    }
-    const deliveryRaw = trimmed(form.deliveryDate);
-    if (deliveryRaw && !isValidDateYmd(deliveryRaw)) {
-      setFormErrors({ deliveryDate: FORM_MSG.date });
-      return;
-    }
-    const deliveryDate = normalizeDeliveryDate(deliveryRaw);
-    const reminderDays = normalizeReminderDays(form.reminderDays, deliveryDate);
-    setFormErrors({});
-    try {
-      if (form.editId) {
-        const existing = await getClientWithTxs(form.editId);
-        if (!existing) return;
-        await upsertClient({
-          ...existing,
-          name: form.name.trim(),
-          project: form.project || existing.project || PROJECT_TYPES[0],
-          note: form.note || "",
-          phone: trimmed(form.phone),
-          orderAmount,
-          deliveryDate,
-          reminderDays,
-        });
-      } else {
-        await getActiveFiscalYear();
-        const fiscalYearId = await getActiveFiscalYearId();
-        await upsertClient({
-          id: Date.now(),
-          name: form.name.trim(),
-          project: form.project || PROJECT_TYPES[0],
-          status: "active",
-          note: form.note || "",
-          phone: trimmed(form.phone),
-          orderAmount,
-          deliveryDate,
-          reminderDays,
-          fiscalYearId: fiscalYearId ?? null,
-          createdAt: new Date().toISOString().split("T")[0],
-          txs: [],
-        });
-      }
-      const nextPage = form.editId ? clientPage : 0;
-      if (!form.editId) setClientPage(0);
-      listFetchGen.current += 1;
-      const gen = listFetchGen.current;
-      const { clients: rows, total } = await getClientsPage(
-        CLIENTS_PAGE_SIZE,
-        nextPage * CLIENTS_PAGE_SIZE,
-        pageOptions
-      );
-      if (gen === listFetchGen.current) {
-        setClients(rows || []);
-        setClientTotal(Number(total) || 0);
-      }
-      setClientTick((n) => n + 1);
-    } catch (_) {}
-    setModal(null);
-    setForm({});
+    setClientTick((n) => n + 1);
   };
+
+  const closeAddClient = () => setModal(null);
 
   const clientsWithYearTxs = clients || [];
 
@@ -226,8 +393,7 @@ export default function Clients() {
   };
 
   const openEditClient = (c) => {
-    setFormErrors({});
-    setForm({
+    addClientInitialRef.current = {
       editId: c.id,
       name: c.name || "",
       note: c.note || "",
@@ -236,140 +402,17 @@ export default function Clients() {
       orderAmount: Number(c.orderAmount) > 0 ? String(c.orderAmount) : "",
       deliveryDate: c.deliveryDate || "",
       reminderDays: c.reminderDays == null ? null : c.reminderDays,
-    });
+    };
     setModal("addClient");
   };
 
   const addClientModal = (
-    <CustomModal
+    <AddClientForm
       visible={modal === "addClient"}
-      onClose={() => {
-        setFormErrors({});
-        setModal(null);
-      }}
-      centered
-    >
-      <Text style={styles.modalTitle}>{form.editId ? "✏️ تعديل بيانات العميل" : "👤 إضافة عميل جديد"}</Text>
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>اسم العميل</Text>
-        <FormTextInput
-          styles={styles}
-          placeholder="مثال: أحمد محمد"
-          placeholderTextColor="#64748b"
-          value={form.name || ""}
-          onChangeText={(text) => {
-            setFormErrors((e) => ({ ...e, name: undefined }));
-            setForm((p) => ({ ...p, name: text }));
-          }}
-          error={formErrors.name}
-        />
-      </View>
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>رقم التليفون</Text>
-        <FormTextInput
-          styles={styles}
-          placeholder="01xxxxxxxxx"
-          placeholderTextColor="#64748b"
-          value={form.phone || ""}
-          onChangeText={(text) => setForm((p) => ({ ...p, phone: text }))}
-          keyboardType="phone-pad"
-        />
-      </View>
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>قيمة الطلبية</Text>
-        <FormTextInput
-          styles={styles}
-          placeholder="0"
-          placeholderTextColor="#64748b"
-          value={form.orderAmount?.toString() || ""}
-          onChangeText={(text) => {
-            setFormErrors((e) => ({ ...e, orderAmount: undefined }));
-            setForm((p) => ({ ...p, orderAmount: text }));
-          }}
-          keyboardType="numeric"
-          error={formErrors.orderAmount}
-        />
-      </View>
-      <FormDateField
-        styles={styles}
-        label="موعد التسليم (اختياري)"
-        value={form.deliveryDate || ""}
-        onChangeValue={(v) => {
-          setFormErrors((e) => ({ ...e, deliveryDate: undefined }));
-          setForm((p) => ({
-            ...p,
-            deliveryDate: v,
-            reminderDays: p.deliveryDate ? p.reminderDays : DEFAULT_REMINDER_DAYS,
-          }));
-        }}
-        active={modal === "addClient"}
-        error={formErrors.deliveryDate}
-      />
-      {form.deliveryDate ? (
-        <TouchableOpacity
-          onPress={() => {
-            setFormErrors((e) => ({ ...e, deliveryDate: undefined }));
-            setForm((p) => ({ ...p, deliveryDate: "", reminderDays: null }));
-          }}
-          style={{ alignSelf: "flex-start", marginTop: -8, marginBottom: 12 }}
-        >
-          <Text style={{ color: "#818cf8", fontSize: 12 }}>مسح موعد التسليم</Text>
-        </TouchableOpacity>
-      ) : null}
-      {form.deliveryDate ? (
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>تنبيه قبل الموعد</Text>
-          <View style={styles.optionsGrid}>
-            {REMINDER_DAY_OPTIONS.map((opt) => {
-              const selected =
-                opt.value == null
-                  ? form.reminderDays == null
-                  : Number(form.reminderDays) === opt.value;
-              return (
-                <TouchableOpacity
-                  key={String(opt.value)}
-                  style={[styles.optionBtn, selected && styles.optionBtnActive]}
-                  onPress={() => setForm((p) => ({ ...p, reminderDays: opt.value }))}
-                >
-                  <Text style={[styles.optionBtnText, selected && styles.optionBtnTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>ملاحظة (اختياري)</Text>
-        <FormTextInput
-          styles={styles}
-          placeholder="أي تفاصيل إضافية"
-          placeholderTextColor="#64748b"
-          value={form.note || ""}
-          onChangeText={(text) => setForm((p) => ({ ...p, note: text }))}
-        />
-      </View>
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>نوع المشروع</Text>
-        <View style={styles.optionsGrid}>
-          {PROJECT_TYPES.map((pt) => (
-            <TouchableOpacity
-              key={pt}
-              style={[styles.optionBtn, form.project === pt && styles.optionBtnActive]}
-              onPress={() => setForm((p) => ({ ...p, project: pt }))}
-            >
-              <Text style={[styles.optionBtnText, form.project === pt && styles.optionBtnTextActive]}>
-                {pt}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-      <TouchableOpacity style={[styles.btn, styles.btnPrimary, styles.modalSaveBtn]} onPress={saveClient}>
-        <Text style={styles.btnText}>{form.editId ? "حفظ التعديلات ✓" : "حفظ العميل ✓"}</Text>
-      </TouchableOpacity>
-    </CustomModal>
+      initialRef={addClientInitialRef}
+      onClose={closeAddClient}
+      onSaved={refreshAfterClientSave}
+    />
   );
 
   if (selectedClient) {
@@ -405,8 +448,7 @@ export default function Clients() {
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary, { marginBottom: 16, alignSelf: "flex-start" }]}
             onPress={() => {
-              setFormErrors({});
-              setForm({});
+              addClientInitialRef.current = {};
               closeRowMenu();
               setModal("addClient");
             }}

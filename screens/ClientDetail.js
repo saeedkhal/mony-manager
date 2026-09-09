@@ -591,7 +591,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                 >
                   <View style={[styles.stockTableCol, styles.stockTableColName]}>
                     <Text
-                      style={[styles.stockTableCellName, { color: isIncome ? "#818cf8" : "#fb923c" }]}
+                      style={[styles.stockTableCellName, { color: isIncome ? "#10b981" : "#f43f5e" }]}
                       numberOfLines={1}
                     >
                       {tx.stockMovementId != null
@@ -609,7 +609,7 @@ export default function ClientDetail({ selectedClient, setSelectedClient, onClie
                       style={[
                         styles.stockTableCell,
                         styles.stockTableCellCenter,
-                        { color: isIncome ? "#818cf8" : "#fb923c" },
+                        { color: isIncome ? "#10b981" : "#f43f5e" },
                       ]}
                       numberOfLines={1}
                     >
