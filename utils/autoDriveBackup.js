@@ -90,16 +90,29 @@ export function computeNextDueAt({ lastSuccessAt, interval, hour, fromDate = new
   return next.toISOString();
 }
 
-/** When enabling with no prior success: next occurrence of chosen hour (today or tomorrow). */
-export function computeFirstDueAt({ hour, fromDate = new Date() }) {
+/** When enabling with no prior success: next run respects interval + chosen hour. */
+export function computeFirstDueAt({ hour, interval = "daily", fromDate = new Date() }) {
   const h = clampHour(hour);
-  const next = new Date(fromDate);
-  next.setMinutes(0, 0, 0);
-  next.setHours(h);
-  if (next.getTime() <= fromDate.getTime()) {
-    next.setDate(next.getDate() + 1);
+  const iv = isValidInterval(interval) ? interval : "daily";
+
+  // Daily: next occurrence of that hour (today if still ahead, else tomorrow).
+  if (iv === "daily") {
+    const next = new Date(fromDate);
+    next.setMinutes(0, 0, 0);
+    next.setHours(h);
+    if (next.getTime() <= fromDate.getTime()) {
+      next.setDate(next.getDate() + 1);
+    }
+    return next.toISOString();
   }
-  return next.toISOString();
+
+  // Weekly+: now + interval at the chosen hour (so changing period updates "next backup").
+  return computeNextDueAt({
+    lastSuccessAt: null,
+    interval: iv,
+    hour: h,
+    fromDate,
+  });
 }
 
 export async function loadAutoBackupSettings() {
@@ -144,22 +157,54 @@ export function isBackupDue(settings, now = new Date()) {
   return due <= now.getTime();
 }
 
+/**
+ * Live countdown label. Shows only non-zero units:
+ * years → months → days → hours → minutes → seconds.
+ */
 export function formatCountdownRemaining(nextDueAt, now = new Date()) {
   if (!nextDueAt) return "—";
-  const due = new Date(nextDueAt).getTime();
-  if (Number.isNaN(due)) return "—";
-  const diffMs = due - now.getTime();
+  const due = new Date(nextDueAt);
+  if (Number.isNaN(due.getTime())) return "—";
+  const diffMs = due.getTime() - now.getTime();
   if (diffMs <= 0) return "مستحق الآن";
 
-  const totalMinutes = Math.floor(diffMs / 60000);
-  const days = Math.floor(totalMinutes / (60 * 24));
-  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
-  const minutes = totalMinutes % 60;
+  let years = due.getFullYear() - now.getFullYear();
+  let months = due.getMonth() - now.getMonth();
+  let days = due.getDate() - now.getDate();
+  let hours = due.getHours() - now.getHours();
+  let minutes = due.getMinutes() - now.getMinutes();
+  let seconds = due.getSeconds() - now.getSeconds();
+
+  if (seconds < 0) {
+    seconds += 60;
+    minutes -= 1;
+  }
+  if (minutes < 0) {
+    minutes += 60;
+    hours -= 1;
+  }
+  if (hours < 0) {
+    hours += 24;
+    days -= 1;
+  }
+  if (days < 0) {
+    const daysInPrevMonth = new Date(due.getFullYear(), due.getMonth(), 0).getDate();
+    days += daysInPrevMonth;
+    months -= 1;
+  }
+  if (months < 0) {
+    months += 12;
+    years -= 1;
+  }
 
   const parts = [];
+  if (years > 0) parts.push(`${years} سنة`);
+  if (months > 0) parts.push(`${months} شهر`);
   if (days > 0) parts.push(`${days} يوم`);
   if (hours > 0) parts.push(`${hours} ساعة`);
-  if (days === 0 && hours === 0) parts.push(`${Math.max(1, minutes)} دقيقة`);
+  if (minutes > 0) parts.push(`${minutes} دقيقة`);
+  if (seconds > 0 || parts.length === 0) parts.push(`${Math.max(0, seconds)} ثانية`);
+
   return `فاضل ${parts.join(" و ")}`;
 }
 
@@ -254,7 +299,7 @@ export async function runAutoDriveBackupIfDue() {
 
 /**
  * Persist schedule UI changes and sync nextDueAt.
- * When enabling for the first time (no lastSuccess), schedule first due at chosen hour.
+ * Recalculates nextDueAt whenever interval/hour change or auto-backup is enabled.
  */
 export async function updateAutoBackupSchedule({ enabled, interval, hour }) {
   const current = await loadAutoBackupSettings();
@@ -264,17 +309,25 @@ export async function updateAutoBackupSchedule({ enabled, interval, hour }) {
 
   let nextDueAt = current.nextDueAt;
   if (nextEnabled) {
-    if (current.lastSuccessAt) {
-      const computed = computeNextDueAt({
-        lastSuccessAt: current.lastSuccessAt,
-        interval: nextInterval,
-        hour: nextHour,
-      });
-      // Past due → mark due now so hybrid triggers run ASAP (e.g. after offline).
-      nextDueAt =
-        new Date(computed).getTime() <= Date.now() ? new Date().toISOString() : computed;
-    } else {
-      nextDueAt = computeFirstDueAt({ hour: nextHour });
+    const scheduleChanged =
+      nextInterval !== current.interval ||
+      nextHour !== current.hour ||
+      !current.enabled ||
+      !current.nextDueAt;
+
+    if (scheduleChanged) {
+      if (current.lastSuccessAt) {
+        const computed = computeNextDueAt({
+          lastSuccessAt: current.lastSuccessAt,
+          interval: nextInterval,
+          hour: nextHour,
+        });
+        // Past due → mark due now so hybrid triggers run ASAP (e.g. after offline).
+        nextDueAt =
+          new Date(computed).getTime() <= Date.now() ? new Date().toISOString() : computed;
+      } else {
+        nextDueAt = computeFirstDueAt({ hour: nextHour, interval: nextInterval });
+      }
     }
   }
 

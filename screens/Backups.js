@@ -99,6 +99,7 @@ export default function Backups() {
   const [loadingList, setLoadingList] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [restoringId, setRestoringId] = useState(null);
+  const [sharingId, setSharingId] = useState(null);
   const [manualBackupBusy, setManualBackupBusy] = useState(false);
   const [importingLocalBackup, setImportingLocalBackup] = useState(false);
   const [activeTab, setActiveTab] = useState("drive");
@@ -182,7 +183,7 @@ export default function Backups() {
 
   useEffect(() => {
     if (!autoEnabled || !autoNextDueAt) return undefined;
-    const id = setInterval(() => setCountdownTick((n) => n + 1), 60000);
+    const id = setInterval(() => setCountdownTick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [autoEnabled, autoNextDueAt]);
 
@@ -271,6 +272,35 @@ export default function Backups() {
         },
       ]
     );
+  };
+
+  const onShareDriveBackup = async (file) => {
+    if (!file?.id || !file?.name) return;
+    setSharingId(file.id);
+    try {
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert("مشاركة", "المشاركة غير متاحة على هذا الجهاز.");
+        return;
+      }
+
+      const bytes = await downloadBackupFileFromDrive(file.id);
+      const lower = String(file.name).toLowerCase();
+      const isJson = lower.endsWith(".json");
+      const cacheFile = new File(Paths.cache, file.name);
+      cacheFile.create({ overwrite: true, intermediates: true });
+      cacheFile.write(bytes);
+
+      await Sharing.shareAsync(cacheFile.uri, {
+        mimeType: isJson ? "application/json" : "application/octet-stream",
+        dialogTitle: "مشاركة النسخة عبر واتساب أو تليجرام",
+        UTI: isJson ? "public.json" : "public.database",
+      });
+    } catch (e) {
+      Alert.alert("فشل المشاركة", e?.message || String(e));
+    } finally {
+      setSharingId(null);
+    }
   };
 
   const onBackupNow = async () => {
@@ -492,8 +522,7 @@ export default function Backups() {
                 </View>
 
                 <Text style={styles.backupHint}>
-                  يعمل بصمت في الخلفية. يحتاج إنترنت وحساب Google مربوط. لو فات الموعد بدون نت، يتنفّذ عند رجوع
-                  الاتصال. يُحتفظ بآخر 5 نسخ فقط.
+                  لو فات الموعد بدون نت، يتنفّذ عند رجوع الاتصال. يُحتفظ بآخر 5 نسخ فقط.
                 </Text>
 
                 <Text style={styles.backupAutoLabel}>الفترة</Text>
@@ -603,7 +632,10 @@ export default function Backups() {
                     </Text>
                     <View style={styles.backupItemActions}>
                       {isRestorableBackupName(f.name) ? (
-                        <TouchableOpacity disabled={restoringId != null} onPress={() => onUseBackup(f)}>
+                        <TouchableOpacity
+                          disabled={restoringId != null || sharingId != null}
+                          onPress={() => onUseBackup(f)}
+                        >
                           {restoringId === f.id ? (
                             <ActivityIndicator color="#34d399" size="small" />
                           ) : (
@@ -612,7 +644,18 @@ export default function Backups() {
                         </TouchableOpacity>
                       ) : null}
                       <TouchableOpacity
+                        disabled={restoringId != null || sharingId != null}
+                        onPress={() => onShareDriveBackup(f)}
+                      >
+                        {sharingId === f.id ? (
+                          <ActivityIndicator color="#38bdf8" size="small" />
+                        ) : (
+                          <Text style={styles.backupShareLinkText}>مشاركة</Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={styles.backupOpenLink}
+                        disabled={restoringId != null || sharingId != null}
                         onPress={() => Linking.openURL(`https://drive.google.com/file/d/${f.id}/view`)}
                       >
                         <Text style={styles.backupOpenLinkText}>فتح في Google Drive</Text>
