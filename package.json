@@ -13,7 +13,7 @@
     "ios": "npx expo start --ios",
     "web": "npx expo start --web",
     "lint": "expo lint",
-    "build": "eas build -p android --profile production",
+    "build": "eas build -p android --profile apk",
     "build:aab": "eas build -p android --profile store"
   },
   "dependencies": {

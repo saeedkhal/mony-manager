@@ -433,9 +433,6 @@ export default function Backups() {
     <ScreenLayout>
       <View style={styles.backupView}>
         <Text style={styles.backupTitle}>☁️ النسخ الاحتياطي</Text>
-        <Text style={styles.sectionSubtitle}>
-          اختر بين نسخ Google Drive أو نسخة يدوية تشاركها فورًا عبر واتساب أو تليجرام، مع استيراد من ملف محلي.
-        </Text>
 
         <View style={styles.backupTabsRow}>
           <TouchableOpacity
@@ -520,10 +517,6 @@ export default function Backups() {
                     thumbColor="#f8fafc"
                   />
                 </View>
-
-                <Text style={styles.backupHint}>
-                  لو فات الموعد بدون نت، يتنفّذ عند رجوع الاتصال. يُحتفظ بآخر 5 نسخ فقط.
-                </Text>
 
                 <Text style={styles.backupAutoLabel}>الفترة</Text>
                 <View style={styles.backupAutoChips}>

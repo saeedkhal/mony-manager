@@ -11,8 +11,8 @@
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/omola.jpg",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "resizeMode": "cover",
+      "backgroundColor": "#214E61"
     },
     "ios": {
       "supportsTablet": true,
@@ -21,7 +21,7 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#214E61",
         "foregroundImage": "./assets/omola.jpg"
       },
       "package": "com.saeedkhaled.omola",
