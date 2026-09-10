@@ -1,11 +1,15 @@
-import { StyleSheet, Dimensions, Platform, I18nManager } from "react-native";
+import { StyleSheet, Dimensions, Platform } from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export { SCREEN_WIDTH };
 
-/** First child (e.g. الاسم) on the physical right. `direction: ltr` avoids a second flip with forceRTL. */
+/**
+ * Table rows for this Arabic (RTL) app: first JSX column (e.g. الاسم) on the physical right.
+ * `direction: "ltr"` keeps flex coords stable so we don't double-flip with I18nManager.forceRTL.
+ * Always `row-reverse` — do not key off I18nManager.isRTL at StyleSheet.create time (often wrong/stale).
+ */
 const TABLE_ROW_LTR_ENGINE = {
-  flexDirection: I18nManager.isRTL ? "row" : "row-reverse",
+  flexDirection: "row-reverse",
   direction: "ltr",
 };
 
@@ -851,7 +855,7 @@ export default StyleSheet.create({
   stockTableColName: {
     flex: 1.5,
     minWidth: 0,
-    alignItems: I18nManager.isRTL ? "flex-start" : "flex-end",
+    alignItems: "flex-end",
   },
   stockTableColQty: { flex: 0.75, minWidth: 0, alignItems: "center" },
   stockTableColRemain: { flex: 0.8, minWidth: 0, alignItems: "center" },
